@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-12
+
 ### Added
 
 - **Several agents in one repo: identity-owned, expiring claims**
@@ -1713,7 +1715,8 @@ through multiple roborev rounds.
   real bd issues.
 - Any background daemon.
 
-[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.8.0
 [0.7.0]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.7.0
 [0.6.1]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.6.1
 [0.6.0]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.6.0
