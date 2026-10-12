@@ -365,3 +365,102 @@ func TestRunHandoff_DryRunDoesNotRegister(t *testing.T) {
 		t.Error("-dry-run touched the registry")
 	}
 }
+
+// Flags after the <issue-id> used to be silently dropped: Go's flag
+// package stops at the first positional, the arity check then failed,
+// and the user saw bare usage (would-you-kindly-y6hv, filed from a
+// consumer as watch-ads-not-working-ief). Every placement must now be
+// the same command.
+func TestHandoff_FlagsBeforeAfterAndAroundID(t *testing.T) {
+	clearAmbientIdentity(t)
+	path := writeRunbook(t, "## Steps\n1. step one")
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"before", []string{"-dry-run", "-file", path, "wyk-42"}},
+		{"after", []string{"wyk-42", "-dry-run", "-file", path}},
+		{"around", []string{"-dry-run", "wyk-42", "-file", path}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var code int
+			out, stderr := captureOutErr(t, func() { code = runHandoff(tc.args) })
+			if code != 0 {
+				t.Fatalf("exit %d, want 0; stderr:\n%s", code, stderr)
+			}
+			if !strings.Contains(out, "would hand off wyk-42 to human") {
+				t.Errorf("dry-run plan missing; got:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestHandoff_DoubleDashEndsFlagParsing(t *testing.T) {
+	clearAmbientIdentity(t)
+	path := writeRunbook(t, "## Steps\n1. step one")
+	// Everything after -- is positional, so -note becomes a second
+	// positional and is named in the error rather than hidden in usage.
+	var code int
+	_, stderr := captureOutErr(t, func() {
+		code = runHandoff([]string{"-dry-run", "-file", path, "--", "wyk-42", "-note", "x"})
+	})
+	if code != 64 {
+		t.Errorf("exit %d, want 64", code)
+	}
+	if !strings.Contains(stderr, `wyk handoff: unexpected argument "-note" after <issue-id>`) {
+		t.Errorf("stderr should name the stray token; got %q", stderr)
+	}
+	// And -- directly before the id is the ordinary getopt idiom.
+	out, _ := captureOutErr(t, func() {
+		code = runHandoff([]string{"-dry-run", "-file", path, "--", "wyk-42"})
+	})
+	if code != 0 || !strings.Contains(out, "would hand off wyk-42 to human") {
+		t.Errorf("-- before id: exit %d, out %q", code, out)
+	}
+}
+
+func TestHandoff_FlagShapedNoteValueBinds(t *testing.T) {
+	clearAmbientIdentity(t)
+	path := writeRunbook(t, "## Steps\n1. step one")
+	var code int
+	out, stderr := captureOutErr(t, func() {
+		code = runHandoff([]string{"wyk-42", "-note", "-x", "-dry-run", "-file", path})
+	})
+	if code != 0 {
+		t.Fatalf("exit %d, want 0; stderr:\n%s", code, stderr)
+	}
+	if !strings.Contains(out, "would note: -x") {
+		t.Errorf("-note \"-x\" should bind -x as the note; got:\n%s", out)
+	}
+}
+
+func TestHandoff_ExtraPositionalNamesTheArgument(t *testing.T) {
+	clearAmbientIdentity(t)
+	path := writeRunbook(t, "## Steps\n1. step one")
+	var code int
+	_, stderr := captureOutErr(t, func() {
+		code = runHandoff([]string{"wyk-42", "extra", "-dry-run", "-file", path})
+	})
+	if code != 64 {
+		t.Errorf("exit %d, want 64", code)
+	}
+	if !strings.Contains(stderr, `wyk handoff: unexpected argument "extra" after <issue-id>`) {
+		t.Errorf("stderr should name the extra positional; got %q", stderr)
+	}
+	if strings.Contains(stderr, "usage: wyk handoff") {
+		t.Errorf("a specific error should replace the bare usage dump; got %q", stderr)
+	}
+}
+
+func TestHandoff_UnknownFlagAfterIDIsReported(t *testing.T) {
+	clearAmbientIdentity(t)
+	var code int
+	_, stderr := captureOutErr(t, func() { code = runHandoff([]string{"wyk-42", "-bogus"}) })
+	if code != 64 {
+		t.Errorf("exit %d, want 64", code)
+	}
+	if !strings.Contains(stderr, "flag provided but not defined: -bogus") {
+		t.Errorf("unknown flag after the id should get the flag package's error; got %q", stderr)
+	}
+}

@@ -211,15 +211,16 @@ func runHookPostCommit(args []string) int {
 	fs.Usage = subcommandUsage(fs, "hook post-commit")
 	dir := fs.String("C", "", "run as if bd had been started in this directory")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	pos, err := parseInterleaved(fs, args)
+	if err != nil {
 		return flagParseExit(err)
 	}
 
 	ref := "HEAD"
-	if fs.NArg() == 1 {
-		ref = fs.Arg(0)
-	} else if fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "usage: wyk hook post-commit [-C <dir>] [<commit-sha>]")
+	if len(pos) == 1 {
+		ref = pos[0]
+	} else if len(pos) > 1 {
+		fmt.Fprintln(os.Stderr, unexpectedArg("hook post-commit", pos[1], "<commit-sha>"))
 		return 64
 	}
 
