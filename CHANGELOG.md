@@ -75,6 +75,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Flags are accepted on either side of a positional argument**
+  (would-you-kindly-y6hv, filed from a consuming repo as
+  watch-ads-not-working-ief). `wyk handoff <id> -dry-run -file x` used
+  to print bare usage and exit 64 with no explanation: Go's flag
+  package stops at the first positional, so every flag after
+  `<issue-id>` landed in the positional list and the arity check
+  failed. A shared interleaved parser (`parseInterleaved`) now backs
+  every subcommand that takes a positional — `handoff`, `hook
+  post-commit`, `hook dispatch`, `registry add` (`create` is excluded:
+  it forwards verbatim to bd) — so `wyk handoff <id> -file x.md` is
+  the same command as `wyk handoff -file x.md <id>`. `--` still ends
+  flag parsing, a lone `-` is positional, and a flag value that looks
+  like a flag (`-note "-x"`) still binds to its flag. An argument that
+  no slot accepts is named instead of dumping usage: `wyk handoff:
+  unexpected argument "-file" after <issue-id>`. Unknown flags,
+  missing values and `-h` keep the flag package's own messages.
+
 - **Bulk close is one bd call per workspace instead of one per row**
   (would-you-kindly-cexj). Marking N rows and pressing `a`, `y` used
   to shell `bd close` N times sequentially, each paying Dolt's per-call

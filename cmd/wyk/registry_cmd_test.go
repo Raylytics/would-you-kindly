@@ -415,3 +415,17 @@ func TestRunRegistryAdd_RejectsStrayPositionals(t *testing.T) {
 		t.Errorf("two positionals exit %d, want 64", code)
 	}
 }
+
+// A second path is named in the error rather than hidden in usage, and
+// `--` still ends flag parsing (would-you-kindly-y6hv).
+func TestRegistryAdd_ExtraPositionalIsNamed(t *testing.T) {
+	var code int
+	_, stderr := captureOutErr(t, func() { code = runRegistryAdd([]string{"/a", "/b"}) })
+	if code != 64 || !strings.Contains(stderr, `wyk registry add: unexpected argument "/b" after [path]`) {
+		t.Errorf("two paths: exit %d, stderr %q", code, stderr)
+	}
+	_, stderr = captureOutErr(t, func() { code = runRegistryAdd([]string{"--", "/no/such/dir"}) })
+	if code != 1 || !strings.Contains(stderr, "no such file") {
+		t.Errorf("-- then a missing path: exit %d, stderr %q; want 1 and the stat error", code, stderr)
+	}
+}

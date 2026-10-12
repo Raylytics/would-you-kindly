@@ -848,12 +848,11 @@ func runHandoff(args []string) int {
 	question := fs.Bool("question", false,
 		"with -template: print the QUESTION skeleton (## Question — the human answers or decides) instead of the TASK skeleton (## Steps — the human does something)")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			// --help is a successful request; flag printed usage already.
-			return 0
-		}
-		return 64
+	// Flags may sit before, after or around the <issue-id>; see
+	// parseInterleaved for why the plain fs.Parse was not enough.
+	pos, parseErr := parseInterleaved(fs, args)
+	if parseErr != nil {
+		return flagParseExit(parseErr)
 	}
 
 	// --template short-circuits everything: emit the runbook skeleton so a
@@ -892,10 +891,17 @@ func runHandoff(args []string) int {
 
 	// Validate the two modes.
 	switch {
-	case *createTitle != "" && fs.NArg() > 0:
+	case *createTitle != "" && len(pos) > 0:
 		fmt.Fprintln(os.Stderr, "wyk handoff: -create and a positional <issue-id> are mutually exclusive")
 		return 64
-	case *createTitle == "" && fs.NArg() != 1:
+	case *createTitle == "" && len(pos) > 1:
+		// Name the stray token rather than printing usage: with
+		// interleaved parsing the only way to land here is a genuine
+		// extra positional (or a flag hidden behind `--`), and bare
+		// usage never said which one (would-you-kindly-y6hv).
+		fmt.Fprintln(os.Stderr, unexpectedArg("handoff", pos[1], "<issue-id>"))
+		return 64
+	case *createTitle == "" && len(pos) == 0:
 		// Single-sourced from cliSubcommandDocs — a hand-written copy
 		// here was the third place the handoff usage lived, free to
 		// drift from -h and cli.md (roborev #2060). Nil-guarded so a
@@ -1007,7 +1013,7 @@ func runHandoff(args []string) int {
 				fmt.Printf("would route the new issue to identity %q (label=%s)\n", ident, identityLabel(ident))
 			}
 		} else {
-			fmt.Printf("would hand off %s to human (label=human added, description replaced)\n", fs.Arg(0))
+			fmt.Printf("would hand off %s to human (label=human added, description replaced)\n", pos[0])
 			if ident != "" {
 				fmt.Printf("would route to identity %q (label=%s added)\n", ident, identityLabel(ident))
 			}
@@ -1059,7 +1065,7 @@ func runHandoff(args []string) int {
 		createdViaFlag = true
 		fmt.Printf("created %s — %q\n", id, *createTitle)
 	} else {
-		id = fs.Arg(0)
+		id = pos[0]
 	}
 
 	if err := handoff.BounceToHuman(context.Background(), client, id, runbook); err != nil {

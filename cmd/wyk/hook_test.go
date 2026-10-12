@@ -156,3 +156,18 @@ Closes: would-you-kindly-ci6`
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// `wyk hook post-commit <sha> -C <dir>` must read -C rather than treat
+// it as a second positional (would-you-kindly-y6hv). A bad -C then
+// fails at the git read (exit 1), which proves the flag was bound.
+func TestHookPostCommit_FlagsAfterSHA(t *testing.T) {
+	var code int
+	_, stderr := captureOutErr(t, func() { code = runHookPostCommit([]string{"HEAD", "-C", "/no/such/dir"}) })
+	if code != 1 || !strings.Contains(stderr, "read commit message") {
+		t.Errorf("-C after sha: exit %d, stderr %q; want 1 and a git read failure", code, stderr)
+	}
+	_, stderr = captureOutErr(t, func() { code = runHookPostCommit([]string{"HEAD", "extra"}) })
+	if code != 64 || !strings.Contains(stderr, `wyk hook post-commit: unexpected argument "extra" after <commit-sha>`) {
+		t.Errorf("extra positional: exit %d, stderr %q", code, stderr)
+	}
+}

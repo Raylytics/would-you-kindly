@@ -93,14 +93,18 @@ and the TUI — issues filed there reach nobody.
 func runRegistryAdd(args []string) int {
 	fs := flag.NewFlagSet("registry add", flag.ContinueOnError)
 	fs.Usage = subcommandUsage(fs, "registry add")
-	if err := fs.Parse(args); err != nil {
+	pos, err := parseInterleaved(fs, args)
+	if err != nil {
 		return flagParseExit(err)
 	}
-	if fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "wyk registry add: usage: wyk registry add [path]")
+	if len(pos) > 1 {
+		fmt.Fprintln(os.Stderr, unexpectedArg("registry add", pos[1], "[path]"))
 		return 64
 	}
-	dir := fs.Arg(0)
+	dir := ""
+	if len(pos) == 1 {
+		dir = pos[0]
+	}
 	if dir == "" {
 		cwd, err := os.Getwd()
 		if err != nil {

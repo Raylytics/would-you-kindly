@@ -268,20 +268,38 @@ func runHookDispatch(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: wyk hook dispatch [-C <dir>] <handoff|bounce|close|ping> <issue-id>")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
+	pos, err := parseInterleaved(fs, args)
+	if err != nil {
+		return flagParseExit(err)
+	}
+	if len(pos) == 0 {
+		fs.Usage()
 		return 64
 	}
-	event := hooks.Event(fs.Arg(0))
+	event := hooks.Event(pos[0])
 	if !hooks.IsValidEvent(event) {
 		fs.Usage()
 		return 64
 	}
-	if event == hooks.EventPing && fs.NArg() != 1 || event != hooks.EventPing && fs.NArg() != 2 {
+	want := 2
+	if event == hooks.EventPing {
+		want = 1
+	}
+	switch {
+	case len(pos) < want:
 		fs.Usage()
 		return 64
+	case len(pos) > want:
+		after := "<issue-id>"
+		if want == 1 {
+			after = "ping"
+		}
+		fmt.Fprintln(os.Stderr, unexpectedArg("hook dispatch", pos[want], after))
+		return 64
+	}
+	id := ""
+	if want == 2 {
+		id = pos[1]
 	}
 	if *dir != "" {
 		if err := validateDashC(*dir); err != nil {
@@ -309,16 +327,16 @@ func runHookDispatch(args []string) int {
 	// id or a transient bd error would otherwise fire the hook with a
 	// near-empty issue and no external_ref — the duplicate the ref exists
 	// to prevent. Read first; refuse on failure.
-	issue, err := client.Show(ctx, fs.Arg(1))
+	issue, err := client.Show(ctx, id)
 	if err != nil {
 		if code, msg, ok := classifyBDSentinel(err); ok {
 			fmt.Fprintln(os.Stderr, msg)
 			return code
 		}
-		fmt.Fprintf(os.Stderr, "wyk hook dispatch: cannot read %s from bd (nothing sent): %v\n", fs.Arg(1), err)
+		fmt.Fprintf(os.Stderr, "wyk hook dispatch: cannot read %s from bd (nothing sent): %v\n", id, err)
 		return 1
 	}
 	return fireHandoffHook(ctx, client, d, handoffHookInput{
-		Event: event, Actor: hooks.ActorCLI, ID: fs.Arg(1), Dir: *dir, Issue: &issue,
+		Event: event, Actor: hooks.ActorCLI, ID: id, Dir: *dir, Issue: &issue,
 	}, os.Stdout, os.Stderr)
 }

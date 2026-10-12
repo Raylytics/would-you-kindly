@@ -365,3 +365,27 @@ func TestHookDispatch_Usage(t *testing.T) {
 		t.Errorf("unconfigured dispatch: exit %d, want 0", code)
 	}
 }
+
+// Flags after the positionals bind like flags before them
+// (would-you-kindly-y6hv); an extra positional is named, not buried
+// in usage.
+func TestHookDispatch_FlagsAfterPositionals(t *testing.T) {
+	t.Setenv(handoffHookEnvVar, "")
+	prev := newHandoffHookDispatcher
+	t.Cleanup(func() { newHandoffHookDispatcher = prev })
+	newHandoffHookDispatcher = func() *hooks.Dispatcher { return &hooks.Dispatcher{} }
+	dir := t.TempDir()
+	var code int
+	_, stderr := captureOutErr(t, func() { code = runHookDispatch([]string{"handoff", "wyk-1", "-C", dir}) })
+	if code != 0 {
+		t.Errorf("-C after the positionals: exit %d, want 0; stderr %q", code, stderr)
+	}
+	_, stderr = captureOutErr(t, func() { code = runHookDispatch([]string{"handoff", "wyk-1", "extra", "-C", dir}) })
+	if code != 64 || !strings.Contains(stderr, `wyk hook dispatch: unexpected argument "extra" after <issue-id>`) {
+		t.Errorf("extra positional: exit %d, stderr %q", code, stderr)
+	}
+	_, stderr = captureOutErr(t, func() { code = runHookDispatch([]string{"ping", "wyk-1"}) })
+	if code != 64 || !strings.Contains(stderr, `wyk hook dispatch: unexpected argument "wyk-1" after ping`) {
+		t.Errorf("ping with an id: exit %d, stderr %q", code, stderr)
+	}
+}
