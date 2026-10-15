@@ -17,16 +17,15 @@ the loop they drive.
 
 | Measure | Value |
 |---|---|
-| Issues | 364 |
-| closed | 352 |
+| Issues | 366 |
+| closed | 355 |
 | deferred | 1 |
-| in_progress | 1 |
 | open | 10 |
 | Human-flagged (lifetime) | 14 |
-| Agent-filed (`src:agent`) | 328 |
-| Median time-to-close, human-flagged | 12.5h |
+| Agent-filed (`src:agent`) | 330 |
+| Median time-to-close, human-flagged | 15.3h |
 
-## Not closed (12)
+## Not closed (11)
 
 | ID | Status | Pri | Type | Title | Labels | Created |
 |---|---|---|---|---|---|---|
@@ -35,7 +34,6 @@ the loop they drive.
 | would-you-kindly-2pwr.6 | open | P2 | task | lifecycle: bounce/close events from CLI paths + wyk hook dispatch <event> <id> replay | src:agent | 2026-10-08 |
 | would-you-kindly-2pwr.7 | open | P2 | task | doctor: check the handoff hook command exists, is executable, and answers a ping event | src:agent | 2026-10-08 |
 | would-you-kindly-2pwr.8 | open | P2 | task | agent awareness: conventions section, inbox/export external_ref, plugin session-start line, wyk-handoff skill paragraph | src:agent | 2026-10-08 |
-| would-you-kindly-j9fu | in_progress | P2 | task | Decide: publish a scrubbed read-only backlog snapshot to docs/ so the tracker is visible on GitHub | human src:agent | 2026-08-31 |
 | would-you-kindly-nvxi | open | P2 | bug | wyk create --silent still prints the 'wyk create: created …' banner, breaking $(…) scripting | src:agent | 2026-10-08 |
 | would-you-kindly-vxfz | open | P2 | bug | bd-create-guard hook false-positives on 'bd create' text inside a git commit message | src:agent | 2026-09-27 |
 | would-you-kindly-2sgh | open | P3 | bug | bd-create-guard: false positive on markdown backtick `bd create` inside heredoc bodies | src:agent | 2026-09-05 |
@@ -43,10 +41,13 @@ the loop they drive.
 | would-you-kindly-p00h | open | P3 | feature | adopt newer bd affordances: --claim in TUI, richer detail fields, dependency-blocked view | src:agent | 2026-08-19 |
 | would-you-kindly-wuvg | deferred | P3 | feature | Evaluate bd 1.3.0 events journal (bd events tail / bd serve) as TUI refresh source | src:agent | 2026-09-27 |
 
-## Closed (352)
+## Closed (355)
 
 | ID | Pri | Type | Title | Labels | Created | Closed |
 |---|---|---|---|---|---|---|
+| would-you-kindly-j9fu | P2 | task | Decide: publish a scrubbed read-only backlog snapshot to docs/ so the tracker is visible on GitHub | human src:agent | 2026-08-31 | 2026-10-15 |
+| would-you-kindly-ubhs | P2 | bug | TUI: preset switch leaves old rows under new header for 20-30s in multi-repo mode | src:agent | 2026-10-15 | 2026-10-15 |
+| would-you-kindly-rqo9 | P3 | task | TUI: seed the 'all' superset when the session restores onto a non-all preset | src:agent | 2026-10-15 | 2026-10-15 |
 | would-you-kindly-2top | P3 | task | after the next release: comment on [redacted] with the version that fixes interleaved flags | src:agent | 2026-10-12 | 2026-10-12 |
 | would-you-kindly-6cdj | P1 | task | release: cut v0.8.0 — 60+ commits and a 200-line Unreleased section since v0.7.0 (2026-06-10) | human src:agent | 2026-08-31 | 2026-10-12 |
 | would-you-kindly-y6hv | P2 | bug | wyk handoff (and other positional subcommands) ignore flags placed after the positional; print specific error instead of bare usage | src:agent | 2026-10-12 | 2026-10-12 |

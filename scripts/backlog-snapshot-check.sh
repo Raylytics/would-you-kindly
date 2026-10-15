@@ -8,6 +8,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 F=${1:-$ROOT/docs/backlog-snapshot.md}
+REDACT=${BACKLOG_SNAPSHOT_REDACT:-$ROOT/docs/backlog-snapshot.redact}
 STALE_DAYS=${BACKLOG_SNAPSHOT_STALE_DAYS:-60}
 
 fail() { echo "backlog-snapshot-check: $*" >&2; exit 1; }
@@ -31,11 +32,20 @@ check "UUID"                 '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 check "session label"        'session:[0-9a-fA-F]{8}-'
 check "per-identity label"   'src:agent:[A-Za-z0-9_.-]'
 check "home-directory path"  '(/Users|/home)/'
-# Any pattern the redact list names must not survive either.
+# Any pattern the redact list names must not survive either. The list is
+# Oniguruma (jq) syntax, so it is evaluated with jq's test(), the same engine
+# the generator's gsub uses — grep -E would silently miss `\d` or `(?i)`
+# patterns, or exit 2 and read as "no match" (roborev #6174). A pattern jq
+# cannot compile is a hard failure, not a skipped check.
 while IFS= read -r re; do
   case "$re" in ''|\#*) continue ;; esac
-  check "redact-list pattern '$re'" "$re"
-done < "$ROOT/docs/backlog-snapshot.redact"
+  if ! hits=$(jq -R --arg re "$re" 'select(test($re))' "$F" 2>&1); then
+    fail "redact-list pattern '$re' is not a valid regex: $hits"
+  fi
+  if [ -n "$hits" ]; then
+    echo "backlog-snapshot-check: redact-list pattern '$re':" >&2; echo "$hits" | head -5 >&2; leaks=1
+  fi
+done < "$REDACT"
 [ "$leaks" -eq 0 ] || fail "scrub failures above — fix the generator or docs/backlog-snapshot.redact, then 'make backlog-snapshot'"
 
 # Staleness: a warning only. GitHub Actions renders ::warning:: in the run.
