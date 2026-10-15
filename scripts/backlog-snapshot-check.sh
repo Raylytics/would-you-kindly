@@ -45,16 +45,22 @@ check "home-directory path"  '(/Users|/home)/'
 # test let a lone space through and it matched every row), and a final
 # pattern with no trailing newline is still read (`while read` alone drops
 # it). A missing file is no patterns, as in the generator, but said aloud
-# (roborev #6175).
+# (roborev #6175). The list is captured into a variable, not fed through
+# process substitution: bash ignores a process substitution's exit status,
+# so a jq failure there (an unreadable file) left the loop empty and the
+# check printed ok (roborev #6180). A failure to read the list is fatal —
+# these patterns are the leak guard.
 if [ -f "$REDACT" ]; then
-  while IFS= read -r re; do
+  patterns=$(jq -r 'split("\n") | map(select(test("^\\s*(#|$)") | not))[]' -Rs "$REDACT") \
+    || fail "cannot read redact list $REDACT"
+  [ -z "$patterns" ] || while IFS= read -r re; do
     if ! hits=$(jq -R --arg re "$re" 'select(test($re))' "$F" 2>&1); then
       fail "redact-list pattern '$re' is not a valid regex: $hits"
     fi
     if [ -n "$hits" ]; then
       echo "backlog-snapshot-check: redact-list pattern '$re':" >&2; echo "$hits" | head -5 >&2; leaks=1
     fi
-  done < <(jq -r 'split("\n") | map(select(test("^\\s*(#|$)") | not))[]' -Rs "$REDACT")
+  done <<< "$patterns"
 else
   echo "backlog-snapshot-check: no redact list at $REDACT; redact-list checks skipped" >&2
 fi
