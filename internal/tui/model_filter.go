@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -199,12 +200,67 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 		// once painted, m.all is fair game for in-place optimistic
 		// mutations that must not reach back into the cache.
 		m.all = cloneIssues(cached)
+		m.rowsPreset = p
+		m.rowsApprox = false
+		m.rowsApproxAt = time.Time{}
 		m.commonPrefix = commonIDPrefix(m.all)
 		m.recomputeVisible()
 		m.ensureCursorVisible()
+	} else if all, at, ok := m.allSuperset(); ok {
+		// Cache miss, but an "all" superset is known: derive the view
+		// from it the same way the warm-start seed does, so human /
+		// mine / blocked / review paint on THIS frame instead of
+		// leaving the previous preset's rows under the new header for
+		// the length of a multi-repo round-trip (20-30s on a 30-repo
+		// registry — long enough to read as "Tab doesn't filter",
+		// would-you-kindly-ubhs). Marked approx until the live fetch
+		// reconciles: the predicates drop closed rows regardless of
+		// showClosed, and the superset is either at most one refresh
+		// old (live this session) or carries its age from the on-disk
+		// cache (would-you-kindly-rqo9). "ready" can't be derived (bd
+		// owns dep-readiness) — it keeps the stale rows and the
+		// loading band says so.
+		derived, ok := issuesMatchingPreset(all, filter.PresetAll, p, m.me)
+		if p == filter.PresetAll {
+			// Switching TO all with only the disk sidecar known: the
+			// sidecar is the all view, so paint it as-is.
+			derived, ok = cloneIssues(all), true
+		}
+		if ok {
+			m.all = derived
+			m.rowsPreset = p
+			m.rowsApprox = true
+			m.rowsApproxAt = at
+			m.commonPrefix = commonIDPrefix(m.all)
+			m.recomputeVisible()
+			m.ensureCursorVisible()
+		}
 	}
 	m.refreshing = true
 	return m, m.fetchCmd()
+}
+
+// allSuperset returns the best "all" rows to derive a view from: a
+// live fetch this session (presetCache[all], age zero → the approx
+// marker shows no timestamp), else the sidecar carried in from the
+// on-disk cache with its SavedAt. ok=false when neither exists.
+func (m Model) allSuperset() ([]beads.Issue, time.Time, bool) {
+	if all, ok := m.presetCache[filter.PresetAll]; ok {
+		return all, time.Time{}, true
+	}
+	if len(m.allSnap) > 0 {
+		return m.allSnap, m.allSnapAt, true
+	}
+	return nil, time.Time{}, false
+}
+
+// rowsStale reports whether the table is showing rows fetched for a
+// different preset than the header advertises — the window between
+// dispatching a switch and its fetch landing, when neither the
+// per-preset cache nor the "all" superset could paint the new view.
+// Drives the loading band in listTopChrome and its chromeExtra line.
+func (m Model) rowsStale() bool {
+	return m.refreshing && len(m.all) > 0 && m.rowsPreset != m.preset
 }
 
 func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
