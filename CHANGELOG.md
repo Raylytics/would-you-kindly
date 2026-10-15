@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/backlog-snapshot.md`: a scrubbed, read-only snapshot of this
+  repo's own tracker** (would-you-kindly-j9fu). The README's numbers
+  (issues through the tracker, median time-to-close for human-flagged
+  work) were unverifiable from GitHub because the bd tracker is not in
+  git. `make backlog-snapshot` now renders every issue through a
+  `wyk export` → jq allowlist → markdown pipeline that keeps only id,
+  title, type, status, priority, the contract labels (`human`,
+  `src:agent`, `src:human`, `meta`, `review:*`) and created/closed
+  dates; owner, assignee, descriptions, notes and session labels never
+  reach the projection, per-identity `src:agent:<name>` collapses to
+  `src:agent`, and titles are scrubbed of emails, UUIDs, home paths and
+  every pattern in `docs/backlog-snapshot.redact`. `make
+  backlog-snapshot-check` (in `make check` and CI) fails if any of those
+  survive in the committed file and warns when it is more than 60 days
+  old; regeneration stays local because CI has no bd.
+
 ### Fixed
 
 - **Preset switches paint on the same frame instead of leaving the

@@ -1,0 +1,6 @@
+# Patterns scrubbed from issue titles before they land in
+# docs/backlog-snapshot.md (one Oniguruma regex per line; matches become
+# [redacted]). Emails, UUIDs and home-directory paths are always scrubbed;
+# list anything else that must not appear in public here: client names,
+# private repo names, hostnames.
+watch-ads-not-working[A-Za-z0-9._-]*

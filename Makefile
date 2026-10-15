@@ -4,7 +4,17 @@
 # committed doc snapshots the would-you-kindly.raylytics.io docs agent
 # reads, and the plugin-skills sync.
 
-.PHONY: docs-snapshot docs-check plugin-skills plugin-skills-check lint check help
+.PHONY: docs-snapshot docs-check plugin-skills plugin-skills-check backlog-snapshot backlog-snapshot-check lint check help
+
+# Scrubbed, read-only snapshot of this repo's bd tracker for GitHub
+# visitors (docs/backlog-snapshot.md). Regeneration needs bd, so it is
+# local-only; the check lints the committed file for anything the scrub
+# must never let through and runs in `make check` + CI.
+backlog-snapshot:
+	@./scripts/backlog-snapshot.sh
+
+backlog-snapshot-check:
+	@./scripts/backlog-snapshot-check.sh
 
 # golangci-lint version CI pins (.github/workflows/test.yml). Single
 # source of truth: the `lint` target warns when the locally-installed
@@ -98,6 +108,7 @@ check:
 	@$(MAKE) --no-print-directory lint
 	@echo "==> go build"; go build ./...
 	@$(MAKE) --no-print-directory plugin-skills-check
+	@$(MAKE) --no-print-directory backlog-snapshot-check
 	@echo "==> go test -race"; go test -race -timeout 5m ./...
 	@echo "check: all local gates passed (mirrors the test CI workflow)"
 
@@ -109,3 +120,5 @@ help:
 	@echo "  docs-check           fail if docs/generated/ is stale (run by CI + make check)"
 	@echo "  plugin-skills        sync plugin/skills/ from internal/skills/data/"
 	@echo "  plugin-skills-check  fail if plugin/skills/ is stale (run by make check)"
+	@echo "  backlog-snapshot     regenerate docs/backlog-snapshot.md from the local bd tracker (scrubbed)"
+	@echo "  backlog-snapshot-check  fail if docs/backlog-snapshot.md leaks a scrubbed field (run by CI + make check)"

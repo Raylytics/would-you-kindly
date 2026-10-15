@@ -30,10 +30,13 @@ pitch:
   trailer — the post-commit hook `wyk init` installs auto-closed the
   issue behind each one. `git log --grep '^Closes:'` shows the loop
   running on itself.
-- **330+ issues** have gone through the tracker, all but a handful
+- **360+ issues** have gone through the tracker, all but a handful
   closed. Human-flagged issues close in a median of ~12 hours;
   agent-filed ones carry `src:agent` and the Claude session that filed
-  them (`wyk stats` reports both).
+  them (`wyk stats` reports both). The tracker itself is not in git, but
+  [`docs/backlog-snapshot.md`](docs/backlog-snapshot.md) is a scrubbed,
+  read-only snapshot of every issue in it: titles, status, priority, the
+  contract labels and dates, nothing else.
 - The agent side lives in the repo: [`CLAUDE.md`](CLAUDE.md) (the
   conventions agents follow here, including *why* each one exists),
   [`AGENTS.md`](AGENTS.md), the hooks in

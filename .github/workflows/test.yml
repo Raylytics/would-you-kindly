@@ -77,6 +77,15 @@ jobs:
             exit 1
           fi
 
+      - name: backlog-snapshot scrub check
+        if: matrix.os == 'ubuntu-latest'
+        # docs/backlog-snapshot.md is a public, scrubbed view of the bd
+        # tracker. CI cannot regenerate it (no bd here), so this only
+        # lints the committed file: fail on any email, UUID, session or
+        # per-identity label, home path, or redact-list pattern that
+        # survived the scrub; warn when the file is stale.
+        run: make backlog-snapshot-check
+
       - name: Vet
         run: go vet ./...
 
