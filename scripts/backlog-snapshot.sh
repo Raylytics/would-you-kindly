@@ -20,22 +20,30 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 OUT=${1:-$ROOT/docs/backlog-snapshot.md}
-REDACT=$ROOT/docs/backlog-snapshot.redact
+REDACT=${BACKLOG_SNAPSHOT_REDACT:-$ROOT/docs/backlog-snapshot.redact}
 REPO=${WYK_SNAPSHOT_REPO:-would-you-kindly}
 
 command -v jq >/dev/null || { echo "backlog-snapshot: jq is required" >&2; exit 1; }
 
+TMPBIN=
+cleanup() { rm -rf "$TMPBIN" "$OUT.tmp"; }   # a failed run leaves no .tmp in docs/
+trap cleanup EXIT
 WYK=${WYK:-}
 if [ -z "$WYK" ]; then
   TMPBIN=$(mktemp -d)
-  trap 'rm -rf "$TMPBIN"' EXIT
   (cd "$ROOT" && go build -o "$TMPBIN/wyk" ./cmd/wyk)
   WYK=$TMPBIN/wyk
 fi
 
 # Redaction patterns: one Oniguruma regex per line, # comments and blanks
-# ignored. Each match in a title becomes [redacted].
-REDACTS=$(grep -v '^\s*#' "$REDACT" 2>/dev/null | grep -v '^\s*$' | jq -R . | jq -s . || echo '[]')
+# ignored. Each match in a title becomes [redacted]. Filtered inside jq so a
+# list with no patterns (or no file) is simply [] — a grep pipeline under
+# pipefail exits 1 on "nothing selected" and doubled the fallback (roborev
+# #6174).
+REDACTS='[]'
+if [ -f "$REDACT" ]; then
+  REDACTS=$(jq -Rs 'split("\n") | map(select(test("^\\s*(#|$)") | not))' "$REDACT")
+fi
 TODAY=$(date -u +%Y-%m-%d)
 
 "$WYK" export -repo "$REPO" -closed -compact | jq -r --arg today "$TODAY" --arg repo "$REPO" --argjson redacts "$REDACTS" '
@@ -104,5 +112,8 @@ TODAY=$(date -u +%Y-%m-%d)
       ( $closed[] | closed_row ),
       ""
     ] | join("\n")
-' > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+' > "$OUT.tmp"
+# Not an && chain: under set -e a failing member of `a && b` does not abort,
+# so a jq error used to print "wrote" and exit 0 (found fixing roborev #6174).
+mv "$OUT.tmp" "$OUT"
 echo "backlog-snapshot: wrote $OUT"
