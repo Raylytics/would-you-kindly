@@ -34,21 +34,20 @@ func TestStaleFetchIsDroppedAfterPresetChange(t *testing.T) {
 	// user switches to PresetHuman before the fetch returns. The late
 	// fetched message must not overwrite the model's state.
 	//
-	// The "no-blank-on-switch" change keeps the OLD preset's rows
-	// visible during the switch (so users don't see a wiped table
-	// for the duration of bd's round-trip); the dropped-stale
-	// invariant is about NEW data not overwriting NEWER state, so
-	// we check that the stale fetch leaves m.all == the old rows
-	// rather than asserting m.all is cleared.
+	// The switch itself may repaint the rows (the human view is
+	// derived instantly from the cached "all" superset, see
+	// TestSwitchPreset_DerivesFromAllSuperset); the dropped-stale
+	// invariant is about the LATE fetch not overwriting NEWER state,
+	// so the snapshot to compare against is taken after the switch.
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
-	wantCount := len(m.all)
 
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	m = model.(Model)
 	if !m.refreshing {
 		t.Errorf("preset switch should set refreshing=true; got false")
 	}
+	wantCount := len(m.all)
 
 	// late fetch for the OLD preset arrives — must NOT clobber the
 	// current preset's rows even though they're still the OLD data
@@ -237,11 +236,13 @@ func TestRefreshKeyKeepsTableVisible(t *testing.T) {
 }
 
 func TestSwitchPresetKeepsRowsAndShowsRefreshIndicator(t *testing.T) {
-	// Switching presets no longer blanks the table — the previous
+	// Switching presets no longer blanks the table — when the new
+	// view can't be painted from cache (ready: bd owns dep-readiness,
+	// so it can't be derived from the "all" superset) the previous
 	// rows stay on screen until the new fetch returns, with a
-	// subtle "↻ refreshing" hint in the status bar. The cursor
-	// still resets to 0 so the user lands at the top of the new
-	// view as soon as data arrives.
+	// "↻ refreshing" hint in the status bar. The cursor still resets
+	// to 0 so the user lands at the top of the new view as soon as
+	// data arrives.
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
 	preCount := len(m.all)
@@ -249,8 +250,11 @@ func TestSwitchPresetKeepsRowsAndShowsRefreshIndicator(t *testing.T) {
 		t.Fatal("setup: sampleIssues should yield at least one row")
 	}
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab}) // all → ready
 	m = model.(Model)
+	if m.preset != filter.PresetReady {
+		t.Fatalf("setup: Tab from all should land on ready; got %s", m.preset)
+	}
 
 	if len(m.all) != preCount {
 		t.Errorf("switchPreset must NOT clear all (blanks the screen); got all=%d, want %d", len(m.all), preCount)

@@ -333,8 +333,28 @@ func (m Model) listTopChrome() string {
 		b.WriteString(chips)
 		b.WriteString("\n")
 	}
+	// Stale-rows band: the header says one preset, the table still
+	// holds another's rows while the switch's fetch is in flight.
+	// Unmissable on purpose — the tail-of-status-line ↻ glyph alone
+	// let a 30s multi-repo round-trip read as "Tab does nothing"
+	// (would-you-kindly-ubhs).
+	if m.rowsStale() {
+		b.WriteString(renderStaleRowsBand(m.preset, m.rowsPreset, m.width))
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// renderStaleRowsBand is the centered "loading <preset>…" line shown
+// above the table while its rows still belong to prevPreset. Width 0
+// (unsized model) leaves the text unpadded.
+func renderStaleRowsBand(want, have filter.Preset, width int) string {
+	text := staleRowsStyle.Render(fmt.Sprintf("↻ loading %s… — rows below are still the [%s] view", want, have))
+	if width <= 0 {
+		return text
+	}
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, text)
 }
 
 // listBody is the stacked layout's table region (or its loading /
@@ -1268,6 +1288,9 @@ func (m Model) statusBar() string {
 		left += fmt.Sprintf("  filter:%q", m.query)
 	}
 	switch {
+	case m.rowsApprox && !m.rowsApproxAt.IsZero():
+		// The approx marker below already names the on-disk
+		// superset's age; a second "cached …" segment would repeat it.
 	case m.cacheStale && !m.cacheSavedAt.IsZero():
 		// While the rows on screen come from the on-disk cache and
 		// no successful live fetch has replaced them, surface that
@@ -1284,6 +1307,16 @@ func (m Model) statusBar() string {
 	// stays visible underneath; this just tells the user that
 	// hitting r (or switching presets) actually did something
 	// while bd's round-trip is in flight.
+	// Locally-derived rows (switchPreset's "all"-superset fallback)
+	// are flagged until the authoritative fetch replaces them.
+	if m.rowsApprox {
+		left += "  ≈ approx"
+		if !m.rowsApproxAt.IsZero() {
+			// Derived from the previous launch's cache, not a live
+			// fetch this session — say how old that superset is.
+			left += " from cache " + relTime(m.rowsApproxAt)
+		}
+	}
 	if m.refreshing {
 		left += "  ↻ refreshing"
 	}
@@ -1560,6 +1593,9 @@ func (m Model) chromeExtra() int {
 	}
 	if m.preset != filter.PresetAll || m.priorityCap >= 0 || m.sortBy != sortNone || m.showClosed {
 		n++ // filter chip strip
+	}
+	if m.rowsStale() {
+		n++ // stale-rows loading band
 	}
 	if m.lastErr != nil && len(m.all) > 0 {
 		n++ // refresh-failed banner

@@ -53,6 +53,38 @@ type Cache struct {
 	// before the field existed; those no longer match any scope and
 	// simply cold-start once.
 	Scope string `json:"scope,omitempty"`
+	// All is the most recent "all" fetch, carried along when the
+	// snapshot above belongs to another preset. wyk restores the last
+	// preset on launch, so a user who quit on human relaunches with
+	// no "all" superset in memory — and switchPreset's instant derive
+	// (would-you-kindly-ubhs) has nothing to derive from until the
+	// all view is visited. This sidecar fills that gap from disk
+	// (would-you-kindly-rqo9). Omitted when Preset is "all" itself:
+	// Issues IS the all snapshot then (see AllSnapshot).
+	All *AllSnapshot `json:"all,omitempty"`
+}
+
+// AllSnapshot is the "all" superset sidecar of a Cache whose main
+// snapshot is for another preset.
+type AllSnapshot struct {
+	SavedAt time.Time     `json:"saved_at"`
+	Issues  []beads.Issue `json:"issues"`
+}
+
+// AllSnapshot returns the freshest "all" rows the cache carries and
+// when they were fetched: the main snapshot when it is the all view,
+// else the sidecar. Nil when neither exists or the sidecar has aged
+// past cacheTTL (LoadCache only checks the main snapshot's age; the
+// sidecar can be older, since it is carried forward unchanged across
+// saves made from other presets).
+func (c Cache) AllSnapshot() ([]beads.Issue, time.Time) {
+	if c.Preset == "all" {
+		return c.Issues, c.SavedAt
+	}
+	if c.All == nil || len(c.All.Issues) == 0 || time.Since(c.All.SavedAt) > cacheTTL {
+		return nil, time.Time{}
+	}
+	return c.All.Issues, c.All.SavedAt
 }
 
 // CacheScope derives the scope fingerprint for a set of workspace
@@ -117,14 +149,25 @@ func LoadCache(path string) (Cache, error) {
 // save is fire-and-forget. A failure is silently dropped — the
 // next successful fetch will retry, and a permanently-broken
 // cache directory just degrades to a cold start.
-func saveCacheCmd(path, preset, scope string, issues []beads.Issue) tea.Cmd {
+//
+// all / allAt is the latest "all" superset the model knows (live
+// this session, or carried from the previous launch's cache); it
+// rides along as the All sidecar so a launch that restores onto
+// another preset can still derive views from it. Dropped when the
+// snapshot being saved IS the all view (no point storing it twice)
+// or when there is none.
+func saveCacheCmd(path, preset, scope string, issues, all []beads.Issue, allAt time.Time) tea.Cmd {
 	return func() tea.Msg {
-		_ = SaveCache(path, Cache{
+		c := Cache{
 			Preset:  preset,
 			SavedAt: time.Now(),
 			Issues:  issues,
 			Scope:   scope,
-		})
+		}
+		if preset != "all" && len(all) > 0 {
+			c.All = &AllSnapshot{SavedAt: allAt, Issues: all}
+		}
+		_ = SaveCache(path, c)
 		return nil
 	}
 }
@@ -141,6 +184,11 @@ func SaveCache(path string, c Cache) error {
 	}
 	if len(c.Issues) > cacheMaxIssues {
 		c.Issues = c.Issues[:cacheMaxIssues]
+	}
+	if c.All != nil && len(c.All.Issues) > cacheMaxIssues {
+		all := *c.All
+		all.Issues = all.Issues[:cacheMaxIssues]
+		c.All = &all
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)

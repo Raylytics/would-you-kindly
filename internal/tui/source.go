@@ -920,7 +920,13 @@ func (m *MultiBDSource) FetchWithSubErrors(ctx context.Context, p filter.Preset)
 			// so the retry stays concurrency-capped too — a retry wave
 			// can't blow past fetchConcurrency.
 			fetchOnce := func() ([]beads.Issue, error) {
-				fetchSem <- struct{}{}
+				// A cancelled fetch (superseded by a preset switch)
+				// shouldn't queue for a slot it will only use to fail.
+				select {
+				case fetchSem <- struct{}{}:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
 				defer func() { <-fetchSem }()
 				return sub.src.Fetch(ctx, p)
 			}

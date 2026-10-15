@@ -210,6 +210,12 @@ var (
 	// already set their own foregrounds and stay vivid — this
 	// envelope only paints the unstyled runs.
 	closedRowStyle = lipgloss.NewStyle().Foreground(cFaint)
+
+	// staleRowsStyle is the loading band shown above the table while
+	// its rows belong to a preset other than the one the header
+	// advertises (see renderStaleRowsBand). Amber + bold so it reads
+	// as "in progress", not as an error.
+	staleRowsStyle = lipgloss.NewStyle().Foreground(cWarn).Bold(true)
 )
 
 // ApplyTheme overlays a user theme.json onto the built-in styles.

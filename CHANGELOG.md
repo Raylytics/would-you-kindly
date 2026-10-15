@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Preset switches paint on the same frame instead of leaving the
+  old rows under the new header** (would-you-kindly-ubhs,
+  would-you-kindly-rqo9). On a 30-repo registry a Tab / `h` /
+  `:preset` switch dispatched a full multi-repo fetch and kept the
+  previous view's rows on screen for the 20-30s it took to land, with
+  only a tail-of-status-line `↻ refreshing` glyph as the signal — it
+  read as "Tab doesn't filter". Now: `human`, `mine`, `blocked` and
+  `review` are derived instantly from the last `all` fetch (this
+  session's, else the `all` sidecar the warm-start cache now carries
+  across launches) and flagged `≈ approx` — with the snapshot's age
+  when it came from disk — until the live fetch reconciles; `ready`,
+  which only bd can compute, keeps the old rows but shows a centered
+  `↻ loading ready… — rows below are still the [all] view` band above
+  the table; and dispatching any fetch cancels the one it supersedes,
+  so cycling through presets no longer piles fan-outs onto the same
+  Dolt engines. `~/.cache/wyk/last-fetch.json` gains an optional `all`
+  field (schema version unchanged; older binaries ignore it and drop
+  it on their next save).
+
 ## [0.8.0] — 2026-10-12
 
 ### Added

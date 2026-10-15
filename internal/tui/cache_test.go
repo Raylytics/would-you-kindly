@@ -151,3 +151,55 @@ func TestCacheScope_MismatchIsNeverSeeded(t *testing.T) {
 		t.Fatalf("unscoped legacy cache must not seed a scoped model; got %d rows", len(m.all))
 	}
 }
+
+// TestCache_AllSidecar: a snapshot saved from a non-all preset carries
+// the latest "all" rows as a sidecar so the next launch can derive
+// other views from them; an all snapshot IS the superset and stores
+// nothing twice; an expired sidecar is ignored (would-you-kindly-rqo9).
+func TestCache_AllSidecar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "last-fetch.json")
+	allAt := time.Now().Add(-2 * time.Hour)
+	cmd := saveCacheCmd(path, "human", "scope", []beads.Issue{{ID: "h-1"}},
+		[]beads.Issue{{ID: "a-1"}, {ID: "h-1"}}, allAt)
+	_ = cmd()
+	got, err := LoadCache(path)
+	if err != nil {
+		t.Fatalf("LoadCache: %v", err)
+	}
+	all, at := got.AllSnapshot()
+	if len(all) != 2 || !at.Equal(allAt) {
+		t.Errorf("sidecar should round-trip 2 all rows at %v; got %d rows at %v", allAt, len(all), at)
+	}
+	if len(got.Issues) != 1 || got.Issues[0].ID != "h-1" {
+		t.Errorf("main snapshot should still be the human rows; got %+v", got.Issues)
+	}
+
+	// Saving the all view itself drops the sidecar; AllSnapshot
+	// answers from the main rows.
+	_ = saveCacheCmd(path, "all", "scope", []beads.Issue{{ID: "a-9"}}, []beads.Issue{{ID: "old"}}, allAt)()
+	got, err = LoadCache(path)
+	if err != nil {
+		t.Fatalf("LoadCache: %v", err)
+	}
+	if got.All != nil {
+		t.Error("an all snapshot should not carry a sidecar")
+	}
+	if all, _ := got.AllSnapshot(); len(all) != 1 || all[0].ID != "a-9" {
+		t.Errorf("AllSnapshot of an all cache should be its own rows; got %+v", all)
+	}
+
+	// An expired sidecar is as good as none.
+	stale := Cache{Preset: "human", Issues: []beads.Issue{{ID: "h-1"}},
+		All: &AllSnapshot{SavedAt: time.Now().Add(-cacheTTL - time.Hour), Issues: []beads.Issue{{ID: "a-1"}}}}
+	if all, _ := stale.AllSnapshot(); all != nil {
+		t.Errorf("expired sidecar should be ignored; got %+v", all)
+	}
+
+	// The cap applies to the sidecar too.
+	big := make([]beads.Issue, cacheMaxIssues+5)
+	_ = saveCacheCmd(path, "human", "scope", []beads.Issue{{ID: "h-1"}}, big, allAt)()
+	got, _ = LoadCache(path)
+	if all, _ := got.AllSnapshot(); len(all) != cacheMaxIssues {
+		t.Errorf("sidecar should be capped at %d; got %d", cacheMaxIssues, len(all))
+	}
+}

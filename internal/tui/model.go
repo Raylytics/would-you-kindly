@@ -11,6 +11,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -327,6 +328,37 @@ type Model struct {
 	// cacheSavedAt is the SavedAt timestamp of the seeded cache,
 	// used by the status indicator. Zero when no seed happened.
 	cacheSavedAt time.Time
+	// rowsPreset is the preset m.all was produced for. It lags
+	// m.preset from the moment a switch is dispatched until that
+	// switch's fetch (or an instant cache/approx paint) replaces the
+	// rows — the window where the header advertises one view while
+	// the table still shows another. rowsStale() reads it to render
+	// the loading band (would-you-kindly-ubhs).
+	rowsPreset filter.Preset
+	// rowsApprox is true while m.all was derived locally from the
+	// cached "all" superset (see switchPreset) rather than fetched
+	// for m.preset. Drives a "≈ approx" status marker until the
+	// reconciling fetch lands.
+	rowsApprox bool
+	// rowsApproxAt is when the superset the approx rows were derived
+	// from was fetched — zero when it was a live fetch this session,
+	// set when it came from the previous launch's on-disk cache so
+	// the status marker can show the age.
+	rowsApproxAt time.Time
+	// allSnap / allSnapAt is the freshest "all" superset known: the
+	// live all fetch this session (presetCache[all] wins over it for
+	// instant paints), else the sidecar carried in from the on-disk
+	// cache. switchPreset derives from it when presetCache[all] is
+	// absent, and every cache save carries it forward so the NEXT
+	// launch has it too (would-you-kindly-rqo9).
+	allSnap   []beads.Issue
+	allSnapAt time.Time
+	// fetches cancels the previous in-flight fetch whenever a
+	// replacement is dispatched (preset switch, r, a post-write
+	// refetch). Shared by pointer so the cancel survives Bubble
+	// Tea's by-value model copies; nil (bare Model{} in tests)
+	// means no cancellation.
+	fetches *fetchController
 
 	// scroll is the row index at the top of the rendered window —
 	// used to keep the column header visible when m.visible has
@@ -612,6 +644,7 @@ func New(src Source) Model {
 	sp.Style = setupHintStyle
 
 	m := Model{
+		fetches:        &fetchController{},
 		src:            src,
 		keys:           defaultKeyMap(),
 		mode:           modeList,
@@ -723,11 +756,30 @@ func (m Model) WithCacheSnapshot(c Cache, path string) Model {
 			issues = append(issues, i)
 		}
 	}
+	// Keep the all superset (main snapshot or sidecar) for in-session
+	// derives and for carrying forward on the next save, closed rows
+	// stripped for the same reason as above.
+	if all, at := c.AllSnapshot(); len(all) > 0 {
+		kept := make([]beads.Issue, 0, len(all))
+		for _, i := range all {
+			if i.Status != "closed" {
+				kept = append(kept, i)
+			}
+		}
+		if len(kept) > 0 {
+			m.allSnap, m.allSnapAt = kept, at
+		}
+	}
 	if len(issues) == 0 {
 		return m
 	}
 	if filter.Preset(c.Preset) != m.preset {
 		filtered, ok := issuesMatchingPreset(issues, filter.Preset(c.Preset), m.preset, m.me)
+		if !ok && len(m.allSnap) > 0 {
+			// The main snapshot is another subset (quit on human,
+			// restoring mine): derive from the carried all sidecar.
+			filtered, ok = issuesMatchingPreset(m.allSnap, filter.PresetAll, m.preset, m.me)
+		}
 		if !ok || len(filtered) == 0 {
 			// Can't approximate this view — or the approximation is
 			// empty, and pre-painting an empty list has no value
@@ -738,6 +790,7 @@ func (m Model) WithCacheSnapshot(c Cache, path string) Model {
 		issues = filtered
 	}
 	m.all = issues
+	m.rowsPreset = m.preset
 	m.commonPrefix = commonIDPrefix(m.all)
 	m.recomputeVisible()
 	// Warm-start seeded the visible set, so a session-restored cursor
@@ -767,6 +820,9 @@ func (m Model) WithCacheScope(scope string) Model {
 
 func (m Model) WithPreset(p filter.Preset) Model {
 	m.preset = p
+	if len(m.all) == 0 {
+		m.rowsPreset = p
+	}
 	return m
 }
 
@@ -783,6 +839,9 @@ func (m Model) WithSession(s SessionState, path string) Model {
 	m.sessionPath = path
 	if filter.IsPreset(s.Preset) {
 		m.preset = filter.Preset(s.Preset)
+		if len(m.all) == 0 {
+			m.rowsPreset = m.preset
+		}
 	}
 	if k, ok := sortKeyFromLabel(s.Sort); ok {
 		m.sortBy = k
@@ -937,15 +996,54 @@ func waitFSEvent(events <-chan struct{}) tea.Cmd {
 // fetch's rows.
 func (m Model) fetchCmd() tea.Cmd {
 	src, preset := m.src, m.preset
+	// Dispatching a fetch cancels the one before it, synchronously,
+	// here in Update: a preset switch (or r, or a post-write refetch)
+	// means the previous round-trip's answer is no longer wanted, and
+	// letting it run to completion only piles another full multi-repo
+	// fan-out onto the same Dolt engines the replacement needs
+	// (would-you-kindly-ubhs). The cancelled closure returns nil —
+	// no fetchedMsg at all — so it can neither clobber the rows nor
+	// clear m.refreshing out from under the fetch that superseded it.
+	ctx := context.Background()
+	if m.fetches != nil {
+		ctx = m.fetches.begin()
+	}
 	return func() tea.Msg {
-		ctx := context.Background()
+		var msg fetchedMsg
 		if ms, ok := src.(MultiSource); ok {
 			issues, subErrs, err := ms.FetchWithSubErrors(ctx, preset)
-			return fetchedMsg{preset: preset, issues: issues, subErrs: subErrs, err: err}
+			msg = fetchedMsg{preset: preset, issues: issues, subErrs: subErrs, err: err}
+		} else {
+			issues, err := src.Fetch(ctx, preset)
+			msg = fetchedMsg{preset: preset, issues: issues, err: err}
 		}
-		issues, err := src.Fetch(ctx, preset)
-		return fetchedMsg{preset: preset, issues: issues, err: err}
+		if ctx.Err() != nil {
+			return nil
+		}
+		return msg
 	}
+}
+
+// fetchController owns the cancel func of the most recently
+// dispatched fetch. begin cancels that fetch and hands back a fresh
+// context for its replacement. The invariant that makes a cancelled
+// fetch safe to drop silently: cancel only ever happens because a
+// newer fetch is being dispatched, so there is always one live
+// round-trip to land and clear the refreshing state.
+type fetchController struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (f *fetchController) begin() context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancel != nil {
+		f.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
+	return ctx
 }
 
 func tickCmd(gen int) tea.Cmd {
@@ -1167,6 +1265,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cacheCmd, depsCmd tea.Cmd
 		if msg.err == nil {
 			m.all = msg.issues
+			m.rowsPreset = msg.preset
+			m.rowsApprox = false
+			m.rowsApproxAt = time.Time{}
 			// Remember this preset's result so a later switch back to
 			// it paints instantly from cache (see switchPreset). CLONED
 			// synchronously, here in Update: the optimistic write paths
@@ -1182,6 +1283,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.presetCache = make(map[filter.Preset][]beads.Issue)
 			}
 			m.presetCache[msg.preset] = snap
+			if msg.preset == filter.PresetAll {
+				m.allSnap, m.allSnapAt = snap, time.Now()
+			}
 			m.commonPrefix = commonIDPrefix(m.all)
 			// Freshen cached detail-view dependency rows from the new
 			// list so a status that drifted (an external write, or a
@@ -1219,7 +1323,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// would stutter input handling on slow disks, which
 			// would defeat the warm-start latency win.
 			if m.cachePath != "" {
-				cacheCmd = saveCacheCmd(m.cachePath, string(m.preset), m.cacheScope, snap)
+				cacheCmd = saveCacheCmd(m.cachePath, string(m.preset), m.cacheScope, snap, m.allSnap, m.allSnapAt)
 			}
 		}
 		// Per-sub fetch errors travel on the msg itself so they
