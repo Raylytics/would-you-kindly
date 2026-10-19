@@ -84,6 +84,7 @@ var cliSubcommandDocs = []cliSubcommandDoc{
 		Usage:   "wyk create <bd create args...>",
 		Examples: []string{
 			"wyk create --title=\"Fix the flaky retry test\" --type=bug -p 2   # bd create + Claude session stamp",
+			"ID=$(wyk create --silent --title=\"Epic\" --type=epic)             # --silent: only the new ID on stdout, for scripting",
 		},
 		Flags: nil, // every flag is forwarded verbatim to `bd create`; see `bd create --help`
 	},

@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field (schema version unchanged; older binaries ignore it and drop
   it on their next save).
 
+- **`wyk create --silent` prints only the new ID** (would-you-kindly-nvxi).
+  `--silent` is bd's scripting contract, but wyk wrapped it in the
+  `wyk create: created <id> (src:agent, session:…)` banner, so
+  `ID=$(wyk create --silent …)` captured the banner and a following
+  `--parent "$ID"` failed with "parent issue not found". Now `--silent`
+  (or `-silent`) yields bare IDs, one per line (several for a `-f`
+  multi-issue create), on both the success and the partial-stamp path;
+  the label stamp still happens and a stamp failure still goes to stderr
+  with exit 1.
+
 ## [0.8.0] — 2026-10-12
 
 ### Added

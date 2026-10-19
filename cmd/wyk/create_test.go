@@ -121,6 +121,69 @@ func TestRunCreate_PartialSuccessReportsIDAndExits1(t *testing.T) {
 	}
 }
 
+// --silent is bd's scripting contract (only the ID on stdout) and wyk
+// must keep it: `ID=$(wyk create --silent …)` used to capture the whole
+// "wyk create: created <id> (src:agent, session:…)" banner, so the next
+// `--parent $ID` failed with "parent issue not found"
+// (would-you-kindly-nvxi).
+func TestRunCreate_SilentPrintsBareID(t *testing.T) {
+	t.Setenv(sessionEnvVar, "sess-1234")
+	cap := withStubCreate(t, "demo-xyz", nil)
+
+	var code int
+	out := captureStdout(t, func() {
+		code = runCreate([]string{"--title", "x", "--silent"})
+	})
+	if code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if out != "demo-xyz\n" {
+		t.Errorf("--silent stdout = %q, want the bare ID and a newline", out)
+	}
+	if !cap.hasLabel("src:agent") {
+		t.Errorf("--silent must not skip the label stamp; labels = %v", cap.labels)
+	}
+}
+
+// Single-dash -silent is the same flag to bd's parser and to hasFlag.
+func TestRunCreate_SingleDashSilentPrintsBareID(t *testing.T) {
+	withStubCreate(t, "demo-abc", nil)
+	out := captureStdout(t, func() {
+		runCreate([]string{"-silent", "--title", "x"})
+	})
+	if out != "demo-abc\n" {
+		t.Errorf("-silent stdout = %q, want the bare ID", out)
+	}
+}
+
+// Several IDs (a -f multi-issue create) come back joined; --silent
+// prints one per line so a shell loop can consume them.
+func TestRunCreate_SilentMultipleIDsOnePerLine(t *testing.T) {
+	withStubCreate(t, "demo-1, demo-2", nil)
+	out := captureStdout(t, func() {
+		runCreate([]string{"-f", "issues.md", "--silent"})
+	})
+	if out != "demo-1\ndemo-2\n" {
+		t.Errorf("--silent multi-ID stdout = %q, want one ID per line", out)
+	}
+}
+
+// Partial success under --silent: the ID still lands on stdout (bare),
+// the complaint on stderr, exit 1 — same contract as the banner path.
+func TestRunCreate_SilentPartialSuccessStillBareID(t *testing.T) {
+	withStubCreate(t, "demo-xyz", errors.New("label add failed"))
+	var code int
+	out := captureStdout(t, func() {
+		code = runCreate([]string{"--title", "x", "--silent"})
+	})
+	if code != 1 {
+		t.Errorf("exit %d, want 1 on partial success", code)
+	}
+	if out != "demo-xyz\n" {
+		t.Errorf("--silent partial-success stdout = %q, want the bare ID only", out)
+	}
+}
+
 func TestRunCreate_NoArgsIsUsageError(t *testing.T) {
 	withStubCreate(t, "", nil)
 	if code := runCreate(nil); code != 64 {

@@ -269,16 +269,38 @@ func runCreate(args []string) int {
 	// regardless of exit code, so a caller parses it the same way whether
 	// or not the labels stamped; the error (if any) goes to stderr and only
 	// the exit code distinguishes partial success.
+	//
+	// --silent is bd's scripting contract — "only the new ID on stdout" —
+	// and wyk honours it the same way: bare IDs, one per line, nothing
+	// else, so `ID=$(wyk create --silent …)` captures an ID and not a
+	// banner (would-you-kindly-nvxi). The label summary that the banner
+	// carried is implied by the exit code; a partial stamp still reports
+	// its error on stderr.
+	silent := hasFlag(args, "--silent")
 	switch {
 	case err != nil:
 		// Partial success: created, but a label didn't stamp.
-		fmt.Printf("wyk create: created %s (labels NOT fully stamped)\n", id)
+		if silent {
+			fmt.Println(silentIDs(id))
+		} else {
+			fmt.Printf("wyk create: created %s (labels NOT fully stamped)\n", id)
+		}
 		fmt.Fprintln(os.Stderr, "wyk create:", err)
 		return 1
+	case silent:
+		fmt.Println(silentIDs(id))
 	default:
 		fmt.Printf("wyk create: created %s (%s)\n", id, displayLabels(labels))
 	}
 	return 0
+}
+
+// silentIDs renders the created IDs for --silent output: one per line,
+// which is what bd itself prints for a single create and what a shell
+// loop over a multi-issue (-f) create would expect. createWithLabels
+// joins several IDs with ", " for the banner; split that back apart.
+func silentIDs(joined string) string {
+	return strings.ReplaceAll(joined, ", ", "\n")
 }
 
 // displayLabels renders the stamped labels for the success line, shortening
