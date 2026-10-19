@@ -54,6 +54,13 @@ func TestBDCreateGuard(t *testing.T) {
 		{"real bd create on the heredoc's own line still blocks", `{"tool_name":"Bash","tool_input":{"command":"cat <<EOF && bd create --title x\nbody\nEOF"}}`, 2},
 		{"unterminated heredoc fails open", `{"tool_name":"Bash","tool_input":{"command":"cat <<EOF\nbd create --title x\n"}}`, 0},
 		{"here-string is not a heredoc: following bd create blocks", `{"tool_name":"Bash","tool_input":{"command":"cat <<< hello\nbd create --title x"}}`, 2},
+		// Tag edge cases (roborev review of 571ae65): arithmetic shift is
+		// not a heredoc, hyphenated tags find their terminator, and a
+		// backslash-quoted tag is a literal heredoc.
+		{"arithmetic shift is not a heredoc: following bd create blocks", `{"tool_name":"Bash","tool_input":{"command":"echo $((1<<2))\nbd create --title x"}}`, 2},
+		{"hyphenated heredoc tag body allowed", `{"tool_name":"Bash","tool_input":{"command":"cat <<END-OF-TEXT\nbd create --title x\nEND-OF-TEXT"}}`, 0},
+		{"real bd create after a hyphenated heredoc still blocks", `{"tool_name":"Bash","tool_input":{"command":"cat <<END-OF-TEXT\nhello\nEND-OF-TEXT\nbd create --title x"}}`, 2},
+		{"backslash-quoted heredoc tag body allowed", `{"tool_name":"Bash","tool_input":{"command":"git commit -F - <<\\EOF\nbd create -f files several issues\nEOF"}}`, 0},
 		{"inline WYK_ALLOW_BD_CREATE=1 prefix allowed", `{"tool_name":"Bash","tool_input":{"command":"WYK_ALLOW_BD_CREATE=1 bd create --title x"}}`, 0},
 		{"inline export WYK_ALLOW_BD_CREATE=1 allowed", `{"tool_name":"Bash","tool_input":{"command":"export WYK_ALLOW_BD_CREATE=1; bd create --title x"}}`, 0},
 		{"WYK_ALLOW_BD_CREATE mentioned in a quoted string does not bypass", `{"tool_name":"Bash","tool_input":{"command":"echo \"WYK_ALLOW_BD_CREATE=1\"; bd create --title x"}}`, 2},
@@ -82,6 +89,10 @@ func TestRedactQuotes_Heredoc(t *testing.T) {
 		{"a <<X; b <<Y\nx\nX\ny\nY\nz", "a <<\x00; b <<\x00\n\x00\n\x00\nz"},
 		{"cat <<EOF\nnever ends", "cat <<\x00\n\x00\n"},
 		{"x << ", "x << "},
+		{"x $((1<<2))\nnext", "x $((1<<2))\nnext"},
+		{"cat <<END-OF\nbody\nEND-OF\nz", "cat <<\x00\n\x00\nz"},
+		{"cat <<\\EOF\nbody\nEOF\nz", "cat <<\x00\n\x00\nz"},
+		{"cat <<EOF;\nbody\nEOF\nz", "cat <<\x00;\n\x00\nz"},
 	}
 	for _, c := range cases {
 		if got := redactQuotes(c.in); got != c.want {

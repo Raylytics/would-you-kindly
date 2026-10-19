@@ -286,3 +286,89 @@ func TestHook_LabelPromptHumanFiresHandoff(t *testing.T) {
 		t.Error("an unrelated label must not reach the hook")
 	}
 }
+
+// The command palette's :label and the . repeat of a label write go
+// through their own dispatchers; they must carry the issue too, or the
+// hook would fire for an empty one (roborev review of bb243db).
+func TestHook_PaletteAndRepeatLabelCarryTheIssue(t *testing.T) {
+	f := &stubFirer{wants: true}
+	m, _ := hookedModel(t, f)
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = model.(Model)
+	agent := m.visible[m.cursor]
+	if agent.IsHuman() {
+		t.Fatalf("test setup: want an agent row, got %+v", agent)
+	}
+
+	model, cmd := m.dispatchPaletteLabel("human")
+	m = model.(Model)
+	wm, ok := cmd().(writeMsg)
+	if !ok || wm.action != "label:human" || wm.issue.ID != agent.ID {
+		t.Fatalf(":label human dispatched %+v, want a label write carrying the issue", wm)
+	}
+	_, cmd = m.Update(wm)
+	hm, ok := findHookMsg(cmd)
+	if !ok || hm.event != hookEventHandoff {
+		t.Fatalf(":label human should fire handoff; got ok=%v %+v", ok, hm)
+	}
+	if want := "handoff " + agent.ID + "@" + agent.Repo; len(f.calls) != 1 || f.calls[0] != want {
+		t.Errorf("hook calls = %v, want [%s]", f.calls, want)
+	}
+
+	// `.` after a label write re-dispatches with the cursor row attached.
+	f.calls = nil
+	m.lastAction = repeatableAction{kind: "unlabel", arg: "human"}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = model.(Model)
+	human := m.visible[m.cursor]
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}})
+	m = model.(Model)
+	wm = cmd().(writeMsg)
+	if wm.action != "unlabel:human" || wm.issue.ID != human.ID {
+		t.Fatalf(". dispatched %+v, want an unlabel write carrying %s", wm, human.ID)
+	}
+	_, cmd = m.Update(wm)
+	if hm, ok := findHookMsg(cmd); !ok || hm.event != hookEventBounce {
+		t.Errorf(". unlabel human should fire bounce; got ok=%v %+v", ok, hm)
+	}
+	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0], "bounce "+human.ID+"@") {
+		t.Errorf("hook calls = %v", f.calls)
+	}
+}
+
+// A bulk :label human is a bulk flag: it fires for the rows it changed.
+func TestHook_PaletteBulkLabelHumanFires(t *testing.T) {
+	f := &stubFirer{wants: true}
+	m, _ := hookedModel(t, f)
+	m.marked = map[string]bool{}
+	var agents int
+	for _, i := range m.visible {
+		m.marked[issueKey(i)] = true
+		if !i.IsHuman() {
+			agents++
+		}
+	}
+	model, cmd := m.dispatchPaletteLabel("human")
+	m = model.(Model)
+	bm, ok := cmd().(bulkWriteMsg)
+	if !ok || bm.action != "flag" {
+		t.Fatalf("bulk :label human dispatched %+v, want a bulk flag", bm)
+	}
+	_, cmd = m.Update(bm)
+	if _, ok := findHookMsg(cmd); !ok || len(f.calls) != agents {
+		t.Errorf("bulk :label human: hook calls = %v, want %d handoffs", f.calls, agents)
+	}
+}
+
+// The backstop: an issue without an ID never reaches the hook.
+func TestHook_EmptyIssueIsNeverSent(t *testing.T) {
+	f := &stubFirer{wants: true}
+	m, _ := hookedModel(t, f)
+	if m.hookCmd(hookEventHandoff, beads.Issue{}) != nil {
+		t.Error("hookCmd scheduled a hook for an issue with no ID")
+	}
+	_, cmd := m.Update(writeMsg{action: "label:human", id: "a-2"})
+	if _, ok := findHookMsg(cmd); ok || len(f.calls) != 0 {
+		t.Errorf("a write result without its issue must not fire the hook; calls=%v", f.calls)
+	}
+}

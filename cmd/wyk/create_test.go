@@ -198,6 +198,80 @@ func TestRunCreate_HelpExitsZero(t *testing.T) {
 	}
 }
 
+// --silent=false is off (pflag semantics), and a positional or value
+// that merely equals "silent" is not the flag (roborev review of 04c3da2).
+func TestRunCreate_SilentFalseAndPositionalKeepBanner(t *testing.T) {
+	for _, args := range [][]string{
+		{"--title", "x", "--silent=false"},
+		{"--silent", "--title", "x", "--silent=false"},
+		{"silent"},
+		{"--title", "silent"},
+		{"--labels", "silent"},
+	} {
+		withStubCreate(t, "demo-xyz", nil)
+		out := captureStdout(t, func() { runCreate(args) })
+		if !strings.Contains(out, "wyk create: created demo-xyz") {
+			t.Errorf("args %v: stdout = %q, want the banner", args, out)
+		}
+	}
+	withStubCreate(t, "demo-xyz", nil)
+	out := captureStdout(t, func() { runCreate([]string{"--silent=false", "--title", "x", "--silent=true"}) })
+	if out != "demo-xyz\n" {
+		t.Errorf("last spelling wins: stdout = %q, want the bare ID", out)
+	}
+}
+
+func TestBoolFlagOn(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"--silent"}, true},
+		{[]string{"-silent"}, true},
+		{[]string{"--silent=true"}, true},
+		{[]string{"--silent=1"}, true},
+		{[]string{"--silent=false"}, false},
+		{[]string{"--silent=0"}, false},
+		{[]string{"--silent=bogus"}, false},
+		{[]string{"silent"}, false},
+		{[]string{"--title", "silent"}, false},
+		{[]string{"--silently"}, false},
+		{[]string{}, false},
+	}
+	for _, c := range cases {
+		if got := boolFlagOn(c.args, "--silent"); got != c.want {
+			t.Errorf("boolFlagOn(%v) = %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+// createWithLabels always runs bd with --silent on, dropping any user
+// spelling of it, so bd's output stays parseable.
+func TestCreateWithLabels_AlwaysRunsBDSilent(t *testing.T) {
+	for _, in := range [][]string{
+		{"--title", "x", "--silent=false"},
+		{"--silent", "--title", "x"},
+		{"--title", "x"},
+	} {
+		f := &fakeCreator{out: "wyk-1"}
+		if _, err := createWithLabels(context.Background(), f, in, nil); err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, a := range f.args {
+			if strings.HasPrefix(a, "--silent") || strings.HasPrefix(a, "-silent") {
+				n++
+				if a != "--silent" {
+					t.Errorf("in %v: bd got %q, want a bare --silent", in, a)
+				}
+			}
+		}
+		if n != 1 {
+			t.Errorf("in %v: bd args %v carry %d silent flags, want exactly one", in, f.args, n)
+		}
+	}
+}
+
 func TestHasFlag(t *testing.T) {
 	args := []string{"--title", "x", "--dolt-auto-commit=on", "--silent"}
 	if !hasFlag(args, "--silent") {
@@ -213,6 +287,9 @@ func TestHasFlag(t *testing.T) {
 	// so we don't append a duplicate that could override an explicit value.
 	if !hasFlag([]string{"-silent"}, "--silent") {
 		t.Error("want hasFlag to detect single-dash -silent")
+	}
+	if hasFlag([]string{"silent", "--title", "silent"}, "--silent") {
+		t.Error("a positional or flag value equal to the name is not the flag")
 	}
 	if !hasFlag([]string{"-dolt-auto-commit=off"}, "--dolt-auto-commit") {
 		t.Error("want hasFlag to detect single-dash -dolt-auto-commit=off")

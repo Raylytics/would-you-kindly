@@ -543,11 +543,11 @@ func (m Model) handleRepeat() (tea.Model, tea.Cmd) {
 			return mu.SetAssignee(ctx, target, arg)
 		})
 	case "label":
-		return m, runWrite("label:"+arg, target.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("label:"+arg, target, func(ctx context.Context) error {
 			return mu.AddLabel(ctx, target, arg)
 		})
 	case "unlabel":
-		return m, runWrite("unlabel:"+arg, target.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("unlabel:"+arg, target, func(ctx context.Context) error {
 			return mu.RemoveLabel(ctx, target, arg)
 		})
 	case "priority":
@@ -1274,17 +1274,18 @@ func (m Model) updateLabel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.marked = nil
 			// Typing "human" here IS a bulk flag: report it as one so
 			// the banner reads "flagged N rows" and the handoff hook
-			// hears about it like it does for H.
-			action := "label"
-			if label == "human" {
-				action = "flag"
-			}
-			return m, runBulkWrite(action, targets, func(ctx context.Context, i beads.Issue) error {
+			// hears about it like it does for H. (Literal action names
+			// at each call site: the bulkVerbs guard reads them.)
+			add := func(ctx context.Context, i beads.Issue) error {
 				if i.HasLabel(label) {
 					return nil // idempotent add
 				}
 				return mu.AddLabel(ctx, i, label)
-			})
+			}
+			if label == "human" {
+				return m, runBulkWrite("flag", targets, add)
+			}
+			return m, runBulkWrite("label", targets, add)
 		}
 		if !m.issueExists(target.ID) {
 			m.setStatus("label cancelled: " + target.ID + " was removed from the workspace by a refresh")

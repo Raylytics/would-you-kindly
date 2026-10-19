@@ -899,4 +899,10 @@ func TestRenderStatsLine_BlockedPresetCountsBothKinds(t *testing.T) {
 	if got := m.renderStatsLine(); strings.Contains(got, "by status") {
 		t.Errorf("all preset should not show the blocked breakdown: %q", got)
 	}
+	// Nor does the blocked preset while m.all still holds another
+	// preset's rows (the fetch after a Tab has not landed).
+	m.preset = filter.PresetBlocked
+	if got := m.renderStatsLine(); strings.Contains(got, "by status") {
+		t.Errorf("stale rows must not be counted as blocked: %q", got)
+	}
 }

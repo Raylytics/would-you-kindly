@@ -117,7 +117,7 @@ the model render per-sub fetch failures.
 **Commit conventions.** Conventional-Commits prefixes (`feat`, `fix`,
 `docs`, `ci`, `chore`) with a scope (`feat(tui):`, `fix(doctor):`).
 Issues are closed via `Closes: <id>` trailers (one ID per line — the
-auto-close hook deliberately rejects multi-ID lines, see README).
+auto-close hook deliberately rejects multi-ID lines, see the auto-close section of docs/OPERATOR.md).
 
 **Versioning (pre-1.0).** On `0.y.z`, default to a **patch** bump
 (`0.y.Z`) — fixes, additive flags, refactors, docs/CI, small UX tweaks.

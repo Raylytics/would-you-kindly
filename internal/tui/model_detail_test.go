@@ -704,3 +704,31 @@ func TestDetailView_RendersFactLines(t *testing.T) {
 		t.Error("close reason escape sequence reached the screen")
 	}
 }
+
+// The fact lines grow the header, so the viewport must shrink to match:
+// a view taller than the terminal makes bubbletea drop the TOP lines,
+// i.e. the badge and title (roborev review of b762ab4).
+func TestDetailView_HeightStaysWithinTerminal(t *testing.T) {
+	src := &stubSource{issues: sampleIssues()}
+	m := applyFetched(New(src), src)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = model.(Model)
+	m.mode = modeDetail
+	m.detailIssue = beads.Issue{
+		ID: "a-9.1", Title: "child", Status: "closed", Parent: "a-9",
+		Labels:    []string{"human", "src:agent"},
+		StartedAt: time.Now().Add(-5 * time.Hour), CommentCount: 3,
+		ClosedAt: time.Now().Add(-time.Hour), CloseReason: "done",
+		Description: strings.Repeat("line\n", 40),
+	}
+	(&m).syncDetailViewport()
+	out := m.View()
+	if h := lipgloss.Height(out); h > 20 {
+		t.Errorf("detail view is %d lines tall on a 20-line terminal:\n%s", h, out)
+	}
+	for _, want := range []string{"child", "parent: ", "closed: "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detail view missing %q:\n%s", want, out)
+		}
+	}
+}

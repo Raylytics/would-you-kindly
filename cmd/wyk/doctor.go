@@ -452,14 +452,20 @@ func checkHandoffHook(d *hooks.Dispatcher) check {
 		}
 		events = "events: " + strings.Join(names, ", ")
 	}
-	prog := hookProgram(d.Config.Command)
-	if prog == "" {
-		return check{name: name, status: statusFail,
-			detail: cmd + " — no program to run (only variable assignments); fix with `wyk config set hooks.handoff.command …`"}
-	}
-	if err := hookProgramResolves(prog); err != nil {
-		return check{name: name, status: statusFail,
-			detail: fmt.Sprintf("%s — %v; fix with `wyk config set hooks.handoff.command …` (the first word must be on PATH or an absolute path)", cmd, err)}
+	// The static check is definitive only for a plain command word. The
+	// command runs through `sh -c`, so one that uses the shell
+	// (`$HOME/bin/hook.sh`, a quoted path with a space, `cd ~/x && node
+	// hook.mjs`) can only be judged by running it: the ping decides.
+	if !hookCommandNeedsShell(d.Config.Command) {
+		prog := hookProgram(d.Config.Command)
+		if prog == "" {
+			return check{name: name, status: statusFail,
+				detail: cmd + " — no program to run (only variable assignments); fix with `wyk config set hooks.handoff.command …`"}
+		}
+		if err := hookProgramResolves(prog); err != nil {
+			return check{name: name, status: statusFail,
+				detail: fmt.Sprintf("%s — %v; fix with `wyk config set hooks.handoff.command …` (the first word must be on PATH or an absolute path)", cmd, err)}
+		}
 	}
 
 	timeout := doctorHookPingTimeout
@@ -487,16 +493,32 @@ func checkHandoffHook(d *hooks.Dispatcher) check {
 }
 
 // hookProgram returns the program `sh -c <command>` will exec: the
-// first word that is not a leading VAR=value assignment, with any
-// surrounding quotes dropped. Empty when there is none.
+// first word that is not a leading VAR=value assignment. Empty when
+// there is none. Only meaningful when hookCommandNeedsShell is false;
+// a quoted or expanded first word is the shell's to resolve.
 func hookProgram(command string) string {
 	for _, f := range strings.Fields(command) {
 		if isEnvAssignment(f) {
 			continue
 		}
-		return strings.Trim(f, `"'`)
+		return f
 	}
 	return ""
+}
+
+// hookCommandNeedsShell reports whether the command's program cannot be
+// known without running the shell: an expansion, quoting, an operator,
+// or a builtin as the first word. Such a command is checked by the ping
+// alone (roborev review of 12819c4).
+func hookCommandNeedsShell(command string) bool {
+	if strings.ContainsAny(command, "$`\"'&;|()<>") {
+		return true
+	}
+	switch hookProgram(command) {
+	case "cd", "exec", ".", "source", "eval", "export", "set", "builtin", "command":
+		return true
+	}
+	return false
 }
 
 // isEnvAssignment reports whether a shell word is NAME=value.

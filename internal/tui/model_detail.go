@@ -493,12 +493,14 @@ func (m Model) resolveDetailDeps(id string) tea.Cmd {
 	}
 }
 
-// detailChromeHeight is the number of lines viewDetail emits
-// outside the scrolling body — used by WindowSizeMsg to size the
-// viewport correctly. Counts: badge line, blank, title, meta,
-// blank, labels (assume present), blank, footer help, plus a one-
-// line breathing buffer. Slightly over-counts when labels are
-// missing (the viewport just gets one extra line, never less).
+// detailChromeHeight is the number of FIXED lines viewDetail emits
+// outside the scrolling body — used by syncDetailViewport to size the
+// viewport. Counts: badge line, blank, title, meta, blank, labels
+// (assume present), blank, footer help, plus a one-line breathing
+// buffer. Slightly over-counts when labels are missing (the viewport
+// just gets one extra line, never less). The fact lines
+// (detailFactLines: parent / activity / closed) vary per issue and are
+// added on top by syncDetailViewport.
 const detailChromeHeight = 9
 
 // detailBody composes the scrolling-eligible portion of the

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/jimbottle/would-you-kindly/internal/beads"
@@ -99,10 +100,18 @@ func createWithLabels(ctx context.Context, c bdCreator, passthrough []string, la
 	// new ID on stdout (clean to capture); --dolt-auto-commit=on is the
 	// project's mandatory write flag. Add each only if absent so a user
 	// who passed it themselves doesn't get a duplicate.
-	args := append([]string{"create"}, passthrough...)
-	if !hasFlag(passthrough, "--silent") {
-		args = append(args, "--silent")
+	// bd's --silent is what makes its stdout parseable (bare IDs), so
+	// bd always runs with it ON whatever the user passed: a
+	// `--silent=false` would hand back the human summary wyk cannot
+	// read. The user's own flag decides only wyk's OUTPUT (runCreate).
+	args := []string{"create"}
+	for _, a := range passthrough {
+		if isFlagNamed(a, "silent") {
+			continue
+		}
+		args = append(args, a)
 	}
+	args = append(args, "--silent")
 	if !hasFlag(passthrough, "--dolt-auto-commit") {
 		args = append(args, "--dolt-auto-commit=on")
 	}
@@ -210,16 +219,48 @@ func parseCreatedIDs(out []byte) []string {
 // both `flag` and each arg are normalised away before comparison, so the
 // single-dash form (which Go's flag package also accepts) is detected
 // too and we don't append a duplicate that could override an explicit
-// value (e.g. a user's `-dolt-auto-commit=off`).
+// value (e.g. a user's `-dolt-auto-commit=off`). Only arguments that
+// ARE flags count: a positional or flag value that happens to equal the
+// name (`wyk create silent`, `--title silent`) is not the flag.
 func hasFlag(args []string, flag string) bool {
 	name := strings.TrimLeft(flag, "-")
 	for _, a := range args {
-		bare := strings.TrimLeft(a, "-")
-		if bare == name || strings.HasPrefix(bare, name+"=") {
+		if isFlagNamed(a, name) {
 			return true
 		}
 	}
 	return false
+}
+
+// isFlagNamed reports whether one argument is the flag `name` in any
+// of its spellings (-name, --name, -name=value, --name=value).
+func isFlagNamed(arg, name string) bool {
+	if !strings.HasPrefix(arg, "-") {
+		return false
+	}
+	bare := strings.TrimLeft(arg, "-")
+	return bare == name || strings.HasPrefix(bare, name+"=")
+}
+
+// boolFlagOn reports whether a boolean flag is ON in args, with bd's
+// (pflag's) semantics: a bare -name/--name is true, -name=value parses
+// the value (`--silent=false` is off), and the last spelling wins.
+func boolFlagOn(args []string, flag string) bool {
+	name := strings.TrimLeft(flag, "-")
+	on := false
+	for _, a := range args {
+		if !isFlagNamed(a, name) {
+			continue
+		}
+		bare := strings.TrimLeft(a, "-")
+		if bare == name {
+			on = true
+			continue
+		}
+		v, err := strconv.ParseBool(bare[len(name)+1:])
+		on = err == nil && v
+	}
+	return on
 }
 
 // runCreate implements `wyk create`: a thin `bd create` wrapper that
@@ -276,7 +317,7 @@ func runCreate(args []string) int {
 	// banner (would-you-kindly-nvxi). The label summary that the banner
 	// carried is implied by the exit code; a partial stamp still reports
 	// its error on stderr.
-	silent := hasFlag(args, "--silent")
+	silent := boolFlagOn(args, "--silent")
 	switch {
 	case err != nil:
 		// Partial success: created, but a label didn't stamp.

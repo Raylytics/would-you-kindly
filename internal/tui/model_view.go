@@ -1477,10 +1477,13 @@ func (m Model) renderStatsLine() string {
 		}
 	}
 	var parts []string
-	if m.preset == filter.PresetBlocked && len(m.all) > 0 {
+	if m.preset == filter.PresetBlocked && m.rowsPreset == filter.PresetBlocked && len(m.all) > 0 {
 		// The view is the union of two populations that look alike in
 		// the Status column; name both so an `open` row here is read
 		// as "waiting on a dependency", not as a bug in the filter.
+		// rowsPreset guards the window after a Tab where m.all still
+		// holds the previous preset's rows: counting those as
+		// dependency-blocked would be wrong for a few seconds.
 		byStatus := 0
 		for _, i := range m.all {
 			if i.Status == "blocked" {

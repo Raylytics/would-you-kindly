@@ -97,13 +97,25 @@ func bulkHookTargets(action string, succeeded []beads.Issue) (string, []beads.Is
 // issues sequentially so a bulk flag reports once, in order, instead of
 // racing the status line with N results.
 func (m Model) hookCmd(event string, issues ...beads.Issue) tea.Cmd {
-	if m.hook == nil || event == "" || len(issues) == 0 || !m.hook.Wants(event) {
+	if m.hook == nil || event == "" || !m.hook.Wants(event) {
+		return nil
+	}
+	// Backstop: a write dispatched without its issue (runWrite rather
+	// than runWriteWithIssue) has nothing the hook could route or name;
+	// sending it would create an external task for no issue.
+	var send []beads.Issue
+	for _, i := range issues {
+		if i.ID != "" {
+			send = append(send, i)
+		}
+	}
+	if len(send) == 0 {
 		return nil
 	}
 	h := m.hook
 	return func() tea.Msg {
 		msg := hookMsg{event: event}
-		for _, i := range issues {
+		for _, i := range send {
 			answer, err := h.Fire(context.Background(), event, i)
 			if err != nil {
 				msg.errs = append(msg.errs, i.ID+": "+err.Error())

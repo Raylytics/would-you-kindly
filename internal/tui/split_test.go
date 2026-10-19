@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -346,5 +347,29 @@ func TestSplit_PaneFollowsCursorInFilterMode(t *testing.T) {
 	if m.detailIssue.ID != m.visible[m.cursor].ID {
 		t.Fatalf("pane should track the narrowed list; pane=%q cursor row=%q",
 			m.detailIssue.ID, m.visible[m.cursor].ID)
+	}
+}
+
+// The pane header carries the same facts as the full-screen header
+// (roborev review of b762ab4).
+func TestSplit_PaneShowsFactLines(t *testing.T) {
+	m, _ := splitFixture(t, 160, 40)
+	if !m.splitActive() {
+		t.Fatal("test setup: split should be active at 160x40")
+	}
+	m.detailIssue = beads.Issue{
+		ID: "a-9.1", Title: "child", Status: "closed", Parent: "a-9",
+		ClosedAt: time.Now().Add(-time.Hour), CloseReason: "shipped in v1",
+		Description: "body",
+	}
+	(&m).syncDetailViewport()
+	out := m.View()
+	for _, want := range []string{"parent: ", "a-9", "closed: ", "shipped in v1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split view missing %q:\n%s", want, out)
+		}
+	}
+	if h := lipgloss.Height(out); h > 40 {
+		t.Errorf("split view is %d lines tall on a 40-line terminal", h)
 	}
 }

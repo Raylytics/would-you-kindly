@@ -182,7 +182,10 @@ func (m *Model) syncDetailViewport() {
 		return
 	}
 	m.detailVP.Width = m.width
-	m.detailVP.Height = max(m.height-detailChromeHeight, 1)
+	// The fact lines (parent / activity / closed) are two rows each
+	// (line + blank) on top of the fixed chrome; without counting them
+	// the view outgrows the terminal and the renderer drops the title.
+	m.detailVP.Height = max(m.height-detailChromeHeight-2*len(detailFactLines(m.detailIssue)), 1)
 }
 
 // followCursor keeps the pane on the cursor row while the list is
@@ -417,6 +420,15 @@ func (m Model) paneHeaderLines(i beads.Issue, width int) []string {
 	))
 	if len(i.Labels) > 0 {
 		lines = append(lines, detailLabelStyle.Render("labels: ")+sanitizeInline(strings.Join(i.Labels, ", ")))
+	}
+	// The same facts the full-screen header shows (parent / activity /
+	// closed), one line each; paneViewportDims counts them.
+	for _, f := range detailFactLines(i) {
+		text := f.text
+		if width > 0 {
+			text = trunc(text, max(width-len(f.label)-2, 1))
+		}
+		lines = append(lines, detailLabelStyle.Render(f.label+": ")+text)
 	}
 	lines = append(lines, "")
 	return lines

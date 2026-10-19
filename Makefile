@@ -103,12 +103,14 @@ lint:
 	fi
 	@golangci-lint run
 
-# govulncheck at the CI-pinned version. `go run …@version` resolves
-# through the module cache, so after the first run it works offline.
-# Reports vulnerabilities the code actually CALLS, in dependencies and
-# the Go standard library — which is why go.mod pins the patched
-# toolchain: the stdlib govulncheck sees is the one that built the
-# binary.
+# govulncheck at the CI-pinned version. `go run …@version` caches the
+# binary after the first run, but every run fetches the vulnerability
+# database from vuln.go.dev, so this target — and therefore `make check`,
+# which ends with it — needs network access (`-db file://…` would point
+# it at a local copy). Reports vulnerabilities the code actually CALLS,
+# in dependencies and the Go standard library — which is why go.mod
+# pins the patched toolchain: the stdlib govulncheck sees is the one
+# that built the binary.
 vuln:
 	@echo "==> govulncheck"; go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 

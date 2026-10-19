@@ -82,10 +82,10 @@ workspace:
 
 ```bash
 wyk init                                             # hook + registry + agent conventions, idempotent
-echo "1. rotate it  2. paste it into op://…  3. Close this issue when done." \
+printf '## Steps\n1. rotate it\n2. paste it into op://…\n3. Close this issue when done.\n' \
   | wyk handoff -create "Rotate the staging DB password" -priority 1
 # created would-you-kindly-2oa — "Rotate the staging DB password"
-# handed would-you-kindly-2oa to human (87-byte runbook)
+# handed would-you-kindly-2oa to human (78-byte runbook)
 wyk                                                  # the TUI; press h
 ```
 

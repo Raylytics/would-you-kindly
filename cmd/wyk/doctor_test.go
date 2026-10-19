@@ -1199,6 +1199,25 @@ func TestCheckHandoffHook(t *testing.T) {
 			t.Errorf("got %s %q, want FAIL 'not executable'", c.status, c.detail)
 		}
 	})
+	// Commands the shell has to interpret skip the static check and are
+	// judged by the ping alone (roborev review of 12819c4).
+	for _, command := range []string{
+		"$HOME/bin/no-such-hook.sh",
+		`"/path with space/hook" --v`,
+		"cd ~/no-such-dir && node hook.mjs",
+		"exec /no/such/hook",
+	} {
+		t.Run("shell command is pinged, not stat'ed: "+command, func(t *testing.T) {
+			r := &stubHookRunner{}
+			c := checkHandoffHook(&hooks.Dispatcher{Config: hooks.Config{Command: command}, Runner: r.run})
+			if !r.called {
+				t.Fatalf("ping not sent for %q (got %s %q)", command, c.status, c.detail)
+			}
+			if c.status != statusPass {
+				t.Errorf("got %s %q, want PASS from the ping", c.status, c.detail)
+			}
+		})
+	}
 	t.Run("answers ping passes with a ping payload", func(t *testing.T) {
 		r := &stubHookRunner{}
 		d := &hooks.Dispatcher{Config: hooks.Config{Command: "FOO=1 sh -c true", Events: []hooks.Event{hooks.EventHandoff}}, Runner: r.run}
@@ -1229,15 +1248,33 @@ func TestCheckHandoffHook(t *testing.T) {
 	})
 }
 
+func TestHookCommandNeedsShell(t *testing.T) {
+	cases := map[string]bool{
+		"node ~/bin/hook.mjs":         false,
+		"/usr/local/bin/hook --flag":  false,
+		"FOO=1 hook":                  false,
+		"$HOME/bin/hook.sh":           true,
+		`"/path with space/hook" --v`: true,
+		"cd ~/x && node hook.mjs":     true,
+		"hook 2>/tmp/log":             true,
+		"exec hook":                   true,
+		". ~/env; hook":               true,
+	}
+	for in, want := range cases {
+		if got := hookCommandNeedsShell(in); got != want {
+			t.Errorf("hookCommandNeedsShell(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestHookProgram(t *testing.T) {
 	cases := map[string]string{
-		"node ~/bin/hook.mjs":         "node",
-		"FOO=1 BAR=x node hook.mjs":   "node",
-		"  /usr/local/bin/hook --v ":  "/usr/local/bin/hook",
-		`"/path with space/hook" --v`: "/path",
-		"FOO=1":                       "",
-		"":                            "",
-		"1X=2 prog":                   "1X=2",
+		"node ~/bin/hook.mjs":        "node",
+		"FOO=1 BAR=x node hook.mjs":  "node",
+		"  /usr/local/bin/hook --v ": "/usr/local/bin/hook",
+		"FOO=1":                      "",
+		"":                           "",
+		"1X=2 prog":                  "1X=2",
 	}
 	for in, want := range cases {
 		if got := hookProgram(in); got != want {

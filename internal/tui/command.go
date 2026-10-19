@@ -224,12 +224,18 @@ func (m Model) dispatchPaletteLabel(label string) (tea.Model, tea.Cmd) {
 	if len(m.marked) > 0 {
 		targets := m.markedIssues()
 		m.marked = nil
-		return m, runBulkWrite("label", targets, func(ctx context.Context, i beads.Issue) error {
+		// `:label human` on a selection IS a bulk flag — same action
+		// name as H so the banner and the handoff hook treat it as one.
+		add := func(ctx context.Context, i beads.Issue) error {
 			if i.HasLabel(label) {
 				return nil
 			}
 			return mu.AddLabel(ctx, i, label)
-		})
+		}
+		if label == "human" {
+			return m, runBulkWrite("flag", targets, add)
+		}
+		return m, runBulkWrite("label", targets, add)
 	}
 	if len(m.visible) == 0 || m.cursor < 0 || m.cursor >= len(m.visible) {
 		m.setStatus(":label: nothing to label")
@@ -240,14 +246,16 @@ func (m Model) dispatchPaletteLabel(label string) (tea.Model, tea.Cmd) {
 		m.setStatus(":label cancelled: " + target.ID + " was removed by a refresh")
 		return m, flashClearCmd(m.statusGen)
 	}
+	// The issue rides along so a human-label transition can reach the
+	// handoff hook with its ID and repo (hook.go).
 	if target.HasLabel(label) {
 		m.lastAction = repeatableAction{kind: "unlabel", arg: label}
-		return m, runWrite("unlabel:"+label, target.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("unlabel:"+label, target, func(ctx context.Context) error {
 			return mu.RemoveLabel(ctx, target, label)
 		})
 	}
 	m.lastAction = repeatableAction{kind: "label", arg: label}
-	return m, runWrite("label:"+label, target.ID, func(ctx context.Context) error {
+	return m, runWriteWithIssue("label:"+label, target, func(ctx context.Context) error {
 		return mu.AddLabel(ctx, target, label)
 	})
 }

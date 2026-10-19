@@ -594,10 +594,10 @@ release, decide which legal entity signs a contract). It files a bd
 issue and hands it off in one shot:
 
 ```bash
-$ echo "1. ...  2. ...  3. Close this issue when done." \
+$ printf '## Steps\n1. ...\n2. ...\n3. Close this issue when done.\n' \
     | wyk handoff -create "Rotate the staging DB password" -priority 1
 created would-you-kindly-2oa — "Rotate the staging DB password"
-handed would-you-kindly-2oa to human (87-byte runbook)
+handed would-you-kindly-2oa to human (53-byte runbook)
 ```
 
 The agent moves on to other work. The bd issue now carries `human`,

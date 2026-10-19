@@ -201,11 +201,14 @@ type heredocTag struct {
 }
 
 // parseHeredocTag reads the tag that follows a `<<` at r[i:]: an
-// optional `-`, optional blanks, then a bare word, a single-quoted
-// word, or a double-quoted word. It returns the tag and the index just
-// past it; an empty name means "not a heredoc after all" (e.g. `<<`
-// followed by nothing or by an operator), in which case the caller
-// leaves the text alone.
+// optional `-`, optional blanks, then the word up to the next blank or
+// shell operator, with quotes and backslashes removed the way the shell
+// does (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<\EOF`, `<<END-OF-TEXT`). It
+// returns the tag and the index just past it; an empty name means "not
+// a heredoc after all" — nothing follows, an operator follows, or the
+// word starts with a digit, which is a shift in `$((1<<2))` far more
+// often than a heredoc — and the caller leaves the text alone (fail
+// open: no redaction, never a swallowed command).
 func parseHeredocTag(r []rune, i int) (heredocTag, int) {
 	var tag heredocTag
 	if i < len(r) && r[i] == '-' {
@@ -215,21 +218,27 @@ func parseHeredocTag(r []rune, i int) (heredocTag, int) {
 	for i < len(r) && (r[i] == ' ' || r[i] == '\t') {
 		i++
 	}
-	if i >= len(r) {
+	if i >= len(r) || (r[i] >= '0' && r[i] <= '9') {
 		return heredocTag{}, i
 	}
 	var name []rune
-	switch r[i] {
-	case '\'', '"':
-		q := r[i]
-		for i++; i < len(r) && r[i] != q; i++ {
-			name = append(name, r[i])
-		}
-		if i < len(r) {
-			i++ // closing quote
-		}
-	default:
-		for i < len(r) && isHeredocWordRune(r[i]) {
+	for i < len(r) && !isHeredocDelim(r[i]) {
+		switch r[i] {
+		case '\\':
+			if i+1 < len(r) {
+				i++
+				name = append(name, r[i])
+			}
+			i++
+		case '\'', '"':
+			q := r[i]
+			for i++; i < len(r) && r[i] != q; i++ {
+				name = append(name, r[i])
+			}
+			if i < len(r) {
+				i++ // closing quote
+			}
+		default:
 			name = append(name, r[i])
 			i++
 		}
@@ -238,11 +247,15 @@ func parseHeredocTag(r []rune, i int) (heredocTag, int) {
 	return tag, i
 }
 
-// isHeredocWordRune bounds an unquoted heredoc tag: letters, digits and
-// `_` cover every tag seen in practice (EOF, PYEOF, __END__), and
-// stopping at anything else keeps `<<EOF;` or `<<EOF)` correct.
-func isHeredocWordRune(c rune) bool {
-	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+// isHeredocDelim ends a heredoc word: whitespace or a shell operator.
+// Hyphens, dots and other punctuation are part of the tag, as in bash,
+// so `<<END-OF-TEXT` matches its terminator line.
+func isHeredocDelim(c rune) bool {
+	switch c {
+	case ' ', '\t', '\n', ';', '&', '|', '<', '>', '(', ')', '`':
+		return true
+	}
+	return false
 }
 
 // skipHeredocBody returns the index just past the terminator line of
