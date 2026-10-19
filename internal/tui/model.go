@@ -190,9 +190,12 @@ type Model struct {
 	// hook, when set, is told about the human-label transitions this
 	// model writes (handoff / bounce / close) once bd has them. See
 	// hook.go.
-	hook   HookFirer
-	mode   mode
-	preset filter.Preset
+	hook HookFirer
+	// claimer, when set, backs the `x` key (claim as a lease). See
+	// claim.go.
+	claimer Claimer
+	mode    mode
+	preset  filter.Preset
 
 	// humanReturnPreset is the preset the user was on when they
 	// pressed `h` to jump into the human view, so a second `h`
@@ -1423,6 +1426,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hookMsg:
 		return m.handleHookResult(msg)
 
+	case claimMsg:
+		return m.handleClaimResult(msg)
+
 	case rawBDMsg:
 		// Compose the overlay body: a header naming the command,
 		// then stdout, then the error string if bd exited non-
@@ -1840,6 +1846,8 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.beginClose()
 	case keyHit(msg, m.keys.ToggleHuman):
 		return m.toggleHuman()
+	case keyHit(msg, m.keys.Claim):
+		return m.handleClaim()
 	case keyHit(msg, m.keys.AddNote):
 		return m.beginNote()
 	case keyHit(msg, m.keys.QuickAdd):

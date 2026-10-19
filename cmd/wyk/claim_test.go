@@ -613,3 +613,48 @@ func TestRefusalJSON(t *testing.T) {
 		t.Fatal("a plain error is not a refusal")
 	}
 }
+
+// The TUI adapter routes by Issue.Repo and runs the CLI's own state
+// machine under the TUI's identity (would-you-kindly-p00h.1).
+func TestTUIClaimer(t *testing.T) {
+	prevBranch := currentBranch
+	currentBranch = func(dir string) string { return "br-" + dir }
+	t.Cleanup(func() { currentBranch = prevBranch })
+
+	var dirs []string
+	f := &fakeClaimClient{issue: beads.Issue{ID: "alpha-1", Status: "open"}}
+	c := &tuiClaimer{
+		me: "claude-a", ttl: time.Hour, dirs: map[string]string{"alpha": "/repos/alpha"}, fallback: "/cwd",
+		now:       func() time.Time { return claimNow },
+		newClient: func(dir string) claimClient { dirs = append(dirs, dir); return f },
+	}
+	res, err := c.Claim(context.Background(), beads.Issue{ID: "alpha-1", Repo: "alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Action != "claimed" || res.Owner != "claude-a" || !res.Until.Equal(claimNow.Add(time.Hour)) {
+		t.Errorf("result = %+v", res)
+	}
+	if len(dirs) != 1 || dirs[0] != "/repos/alpha" {
+		t.Errorf("client dirs = %v, want the alpha path", dirs)
+	}
+	if f.meta[lease.KeyBranch] != "br-/repos/alpha" {
+		t.Errorf("branch on the stamp = %q, want the workspace's branch", f.meta[lease.KeyBranch])
+	}
+
+	// A fenced row is refused with the CLI's own wording; nothing forced.
+	f2 := &fakeClaimClient{issue: beads.Issue{ID: "x-2", Status: "open", Labels: []string{"human"}}}
+	c.newClient = func(string) claimClient { return f2 }
+	if _, err := c.Claim(context.Background(), beads.Issue{ID: "x-2"}); err == nil || !strings.Contains(err.Error(), "human label") {
+		t.Errorf("fenced claim err = %v, want the human-label refusal", err)
+	}
+	if strings.Join(f2.calls, " ") != "show" {
+		t.Errorf("a refused claim must not write; calls = %v", f2.calls)
+	}
+
+	// No identity: refused before any bd call.
+	c.me = ""
+	if _, err := c.Claim(context.Background(), beads.Issue{ID: "x-3"}); err == nil || !strings.Contains(err.Error(), identityEnvVar) {
+		t.Errorf("empty identity err = %v", err)
+	}
+}

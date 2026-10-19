@@ -575,6 +575,13 @@ func (m Model) handleRepeat() (tea.Model, tea.Cmd) {
 		return m, runWriteWithIssue("unflag", target, func(ctx context.Context) error {
 			return mu.RemoveLabel(ctx, target, "human")
 		})
+	case "claim":
+		if m.claimer == nil {
+			m.setStatus("claiming is not wired up here — use `wyk claim <id>`")
+			return m, flashClearCmd(m.statusGen)
+		}
+		m.setStatus("claiming " + target.ID + "…")
+		return m, runClaim(m.claimer, target)
 	default:
 		m.setStatus("repeat: don't know how to redo " + m.lastAction.kind)
 		return m, flashClearCmd(m.statusGen)
@@ -679,6 +686,7 @@ var bulkVerbs = map[string]string{
 	"assign":   "reassigned",
 	"label":    "labeled",
 	"type":     "retyped",
+	"claim":    "claimed",
 }
 
 // usesTextInput reports whether the current mode renders the shared

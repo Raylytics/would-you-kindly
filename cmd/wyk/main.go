@@ -239,6 +239,9 @@ func main() {
 	if hd := newHandoffHookDispatcher(); hd.Config.Enabled() {
 		model = model.WithHandoffHook(newTUIHookFirer(hd, repoPaths))
 	}
+	// `x` checks a row out as a lease under the same identity the Owner
+	// column and the mine preset use (lease.TTL was resolved above).
+	model = model.WithClaimer(newTUIClaimer(*me, lease.TTL, repoPaths))
 	// Restore the last session (filter preset, sort key, cursor) from
 	// ~/.config/wyk/state.json so a re-opened tab lands where the user
 	// left off. Applied BEFORE the -preset flag so an explicit flag

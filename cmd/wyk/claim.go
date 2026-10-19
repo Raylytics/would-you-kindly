@@ -15,6 +15,7 @@ import (
 	"github.com/jimbottle/would-you-kindly/internal/lease"
 	"github.com/jimbottle/would-you-kindly/internal/registry"
 	"github.com/jimbottle/would-you-kindly/internal/sanitize"
+	"github.com/jimbottle/would-you-kindly/internal/tui"
 	"github.com/jimbottle/would-you-kindly/internal/wykconfig"
 )
 
@@ -768,4 +769,66 @@ func orUnrecorded(s string) string {
 		return "an unrecorded holder"
 	}
 	return sanitize.Inline(s)
+}
+
+// tuiClaimer adapts claimIssue to the TUI's Claimer seam
+// (internal/tui/claim.go): the model names the row, this finds its
+// workspace and runs the same lease state machine `wyk claim <id>` does
+// under the TUI's identity, with the workspace's current git branch on
+// the stamp (would-you-kindly-p00h.1). Never forces: a fence or a live
+// lease comes back as the CLI's own refusal text, which names -force.
+type tuiClaimer struct {
+	me  string
+	ttl time.Duration
+	// dirs maps a registry name (Issue.Repo) to its path in multi-repo
+	// mode; fallback is the single workspace otherwise ("" = cwd).
+	dirs     map[string]string
+	fallback string
+	// newClient is swappable in tests; production shells out.
+	newClient func(dir string) claimClient
+	now       func() time.Time
+}
+
+// newTUIClaimer builds the adapter for the workspaces the TUI shows,
+// resolving names the same way newTUIHookFirer does.
+func newTUIClaimer(me string, ttl time.Duration, repoPaths []string) *tuiClaimer {
+	c := &tuiClaimer{me: me, ttl: ttl, now: time.Now, newClient: func(dir string) claimClient {
+		bc := beads.NewClient()
+		bc.Dir = dir
+		return bc
+	}}
+	if len(repoPaths) == 1 {
+		c.fallback = repoPaths[0]
+		return c
+	}
+	c.dirs = map[string]string{}
+	if regPath, err := registry.DefaultPath(); err == nil {
+		if reg, err := registry.Load(regPath); err == nil {
+			for _, r := range reg.Repos {
+				c.dirs[r.Name] = r.Path
+			}
+		}
+	}
+	return c
+}
+
+func (c *tuiClaimer) dirFor(i beads.Issue) string {
+	if p, ok := c.dirs[i.Repo]; ok {
+		return p
+	}
+	return c.fallback
+}
+
+func (c *tuiClaimer) Claim(ctx context.Context, i beads.Issue) (tui.ClaimResult, error) {
+	if c.me == "" {
+		return tui.ClaimResult{}, fmt.Errorf("no identity to claim as: set $%s", identityEnvVar)
+	}
+	dir := c.dirFor(i)
+	out, err := claimIssue(ctx, c.newClient(dir), i.ID, claimOpts{
+		me: c.me, ttl: c.ttl, branch: currentBranch(dir), now: c.now(),
+	})
+	if err != nil {
+		return tui.ClaimResult{}, err
+	}
+	return tui.ClaimResult{Action: string(out.Action), Owner: out.Owner, Until: out.Until, Previous: out.Previous}, nil
 }

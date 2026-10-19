@@ -48,6 +48,7 @@ internal/tui/keymap.go (`DocsKeymap`).
 |-----|--------|
 | `a` | close |
 | `H` | ±human |
+| `x` | claim (lease) |
 | `n` | note |
 | `N` | new issue |
 | `d` | defer |

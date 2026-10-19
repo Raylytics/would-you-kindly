@@ -109,6 +109,13 @@ type keyMap struct {
 	// because bubbletea in raw mode delivers it as a key, not SIGTSTP.
 	Undo key.Binding // u / ctrl+z — undo last close
 
+	// Claim checks the cursor issue (or the marked rows) out as an
+	// expiring lease for this identity — what `wyk claim <id>` does —
+	// so a human can hand work to themselves, or renew what they hold,
+	// without leaving the list. Refused on a live lease held by someone
+	// else and on `human` / `agent-handoff` rows, like the CLI.
+	Claim key.Binding // x — claim as a lease
+
 	// Defer hides the cursor issue from bd ready until a date.
 	// Opens a textinput prompt for the offset (+1d, +1w, tomorrow,
 	// 2026-06-15 — bd parses); empty submission cancels. Backed by
@@ -237,6 +244,7 @@ func defaultKeyMap() keyMap {
 		YankMarkdown:    key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "yank as markdown task")),
 		YankAllMarkdown: key.NewBinding(key.WithKeys("_"), key.WithHelp("_", "yank all as markdown")),
 		Undo:            key.NewBinding(key.WithKeys("u", "ctrl+z"), key.WithHelp("u/^z", "undo close")),
+		Claim:           key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "claim (lease)")),
 		Defer:           key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "defer")),
 		Mark:            key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "mark")),
 		SortReverse:     key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
@@ -308,7 +316,7 @@ func DocsKeymap() []HelpGroup {
 			k.FilterP0, k.FilterP1, k.FilterP2, k.FilterP3, k.FilterPAll,
 		}},
 		{"Writes", []key.Binding{
-			k.Close, k.ToggleHuman, k.AddNote, k.QuickAdd, k.Defer,
+			k.Close, k.ToggleHuman, k.Claim, k.AddNote, k.QuickAdd, k.Defer,
 			k.AssignOwner, k.Label, k.Editor, k.PriorityUp, k.PriorityDown, k.TypeCycle,
 			k.Mark, k.Undo, k.Repeat,
 		}},
@@ -354,7 +362,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom, k.Open, k.Back, k.Layout, k.JumpPrevHuman, k.JumpNextHuman},
 		{k.Filter, k.Human, k.Cycle, k.FilterP0, k.FilterP1, k.FilterP2, k.FilterP3, k.FilterPAll, k.SortCycle, k.SortReverse, k.ShowClosed, k.Columns},
-		{k.Close, k.ToggleHuman, k.AddNote, k.QuickAdd, k.Yank, k.YankRich, k.YankAll, k.YankMarkdown, k.YankAllMarkdown, k.Undo, k.Defer, k.Mark, k.PriorityUp, k.PriorityDown, k.TypeCycle, k.AssignOwner, k.Label, k.Editor, k.Repeat},
+		{k.Close, k.ToggleHuman, k.Claim, k.AddNote, k.QuickAdd, k.Yank, k.YankRich, k.YankAll, k.YankMarkdown, k.YankAllMarkdown, k.Undo, k.Defer, k.Mark, k.PriorityUp, k.PriorityDown, k.TypeCycle, k.AssignOwner, k.Label, k.Editor, k.Repeat},
 		{k.Refresh, k.Mouse, k.Help, k.Quit, k.Command},
 	}
 }

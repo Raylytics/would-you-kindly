@@ -74,6 +74,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   types don't block), the instant Tab switch derives the same set from
   the last `all` fetch, and the status bar reads `N by status, M by
   open deps`. `beads.Issue` gains `BlockingDependencies()`.
+- **`x` claims the cursor row as a lease from the TUI**
+  (would-you-kindly-p00h.1). The Owner column showed leases but the
+  only way to take one was the CLI. `x` now runs the same state machine
+  as `wyk claim <id>` under the TUI's identity (claim when free, renew
+  when already yours, take over an expired lease, refuse a live lease
+  held by someone else and `human` / `agent-handoff` rows, naming the
+  holder or the fence; `wyk claim -force` stays the override), with the
+  workspace's git branch on the stamp; marked rows claim in bulk and
+  `.` repeats it. The banner reads `claimed <id> as <owner> until
+  HH:MM`, and the refetch paints the `@owner` badge. This completes
+  would-you-kindly-p00h.
 
 ### Changed
 

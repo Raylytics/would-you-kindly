@@ -313,7 +313,11 @@ daemon. The default TTL is 2h (`wyk config set claim_ttl 90m`, or
 `$WYK_CLAIM_TTL`), and the Stop hook below renews it on every turn. An
 expired lease is claimable: taking it over leaves a note naming the
 previous holder. In the TUI a live lease shows as `@<owner>` in the
-Owner column and a lapsed one as `EXPIRED`. Full rules:
+Owner column and a lapsed one as `EXPIRED`, and `x` claims the cursor
+row (or the marked rows) under the same identity the `mine` preset
+uses — the same rules as `wyk claim`, so a live lease held by someone
+else and a `human` / `agent-handoff` row are refused with the holder or
+the fence named (use `wyk claim -force` to override). Full rules:
 [`docs/CONTRACT.md`](CONTRACT.md) (wyk-contract/v4).
 
 ### Proactive nudge (opt-in Stop hook)
@@ -479,6 +483,7 @@ to restore the original.
 | ----- | ----------------------------------------------------------- |
 | `a`   | Close the cursor issue (asks `[y/N]` to confirm)            |
 | `H`   | Toggle the `human` label on the cursor issue                |
+| `x`   | Claim the cursor issue (or the marked rows) as a lease for your identity; renews one you hold |
 | `n`   | Append a note to the cursor issue (multi-line textarea)     |
 | `N`   | File a new issue in the cursor's repo (QuickAdd; refuses without an assignee) |
 | `e`   | Edit the cursor issue's description in `$EDITOR`            |
