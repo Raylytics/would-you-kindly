@@ -546,11 +546,20 @@ func detailBody(i beads.Issue, width int, deps, dependents []beads.Issue, depsEr
 	} else {
 		b.WriteString(wrap(sanitizeBlock(i.Description)))
 	}
-	if strings.TrimSpace(i.Notes) != "" {
+	// bd's structured sections follow the runbook: what "done" means,
+	// then how it is to be built. Each collapses when empty, like notes.
+	for _, sec := range []struct{ label, body string }{
+		{"acceptance criteria", i.AcceptanceCriteria},
+		{"design", i.Design},
+		{"notes", i.Notes},
+	} {
+		if strings.TrimSpace(sec.body) == "" {
+			continue
+		}
 		b.WriteString("\n\n")
-		b.WriteString(detailLabelStyle.Render("notes"))
+		b.WriteString(detailLabelStyle.Render(sec.label))
 		b.WriteString("\n")
-		b.WriteString(wrap(sanitizeBlock(i.Notes)))
+		b.WriteString(wrap(sanitizeBlock(sec.body)))
 	}
 	// deps occupy global indices [0, len(deps)); dependents follow, so
 	// the dependents section's selection offset is len(deps).
@@ -646,6 +655,12 @@ func (m Model) viewDetail() string {
 	b.WriteString(meta)
 	b.WriteString("\n\n")
 
+	for _, line := range detailFactLines(i) {
+		b.WriteString(detailLabelStyle.Render(line.label + ": "))
+		b.WriteString(line.text)
+		b.WriteString("\n\n")
+	}
+
 	if line := leaseDetailLine(i); line != "" {
 		b.WriteString(detailLabelStyle.Render("lease: "))
 		b.WriteString(line)
@@ -709,6 +724,46 @@ func (m Model) viewDetail() string {
 	}
 	b.WriteString(helpStyle.Render(footer))
 	return b.String()
+}
+
+// detailFact is one labelled line of the detail header.
+type detailFact struct{ label, text string }
+
+// detailFactLines renders the short structural facts bd keeps on an
+// issue that the body sections don't cover (would-you-kindly-p00h.2):
+// the parent it hangs under, when it was first started and how many
+// comments it has, and — for a closed issue — when and why. Each line
+// is present only when bd supplied the fact, so an open leaf issue
+// still reads exactly as before.
+func detailFactLines(i beads.Issue) []detailFact {
+	var out []detailFact
+	if i.Parent != "" {
+		out = append(out, detailFact{"parent", sanitizeInline(i.Parent)})
+	}
+	var activity []string
+	if !i.StartedAt.IsZero() {
+		activity = append(activity, "started "+relTime(i.StartedAt))
+	}
+	switch {
+	case i.CommentCount == 1:
+		activity = append(activity, "1 comment")
+	case i.CommentCount > 1:
+		activity = append(activity, fmt.Sprintf("%d comments", i.CommentCount))
+	}
+	if len(activity) > 0 {
+		out = append(out, detailFact{"activity", strings.Join(activity, " · ")})
+	}
+	if i.Status == "closed" && (!i.ClosedAt.IsZero() || strings.TrimSpace(i.CloseReason) != "") {
+		var parts []string
+		if !i.ClosedAt.IsZero() {
+			parts = append(parts, relTime(i.ClosedAt))
+		}
+		if r := strings.TrimSpace(i.CloseReason); r != "" {
+			parts = append(parts, sanitizeInline(r))
+		}
+		out = append(out, detailFact{"closed", strings.Join(parts, " — ")})
+	}
+	return out
 }
 
 // detailPromptOverlay returns the rendered write-prompt block to show

@@ -233,6 +233,8 @@ func filterDumpSince(dump exportDump, cutoff time.Time) exportDump {
 func slimIssue(i beads.Issue) beads.Issue {
 	i.Description = ""
 	i.Notes = ""
+	i.AcceptanceCriteria = ""
+	i.Design = ""
 	i.CreatedAt = time.Time{}
 	i.UpdatedAt = time.Time{}
 	i.ClosedAt = time.Time{}

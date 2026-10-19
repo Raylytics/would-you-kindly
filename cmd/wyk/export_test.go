@@ -277,9 +277,17 @@ func TestSlimIssue_DropsBodiesAndTimestampsKeepsCore(t *testing.T) {
 		CreatedAt: time.Now(), UpdatedAt: time.Now(), CreatedBy: "me",
 		Labels: []string{"src:agent"},
 	}
+	full.AcceptanceCriteria, full.Design = "ac body", "design body"
+	full.Parent, full.CloseReason = "a-0", "done"
 	s := slimIssue(full)
 	if s.Description != "" || s.Notes != "" || s.CreatedBy != "" {
 		t.Error("slim should clear description/notes/created_by")
+	}
+	if s.AcceptanceCriteria != "" || s.Design != "" {
+		t.Error("slim should clear the acceptance-criteria and design bodies too")
+	}
+	if s.Parent != "a-0" || s.CloseReason != "done" {
+		t.Errorf("slim should keep parent and close_reason (short, structural): %+v", s)
 	}
 	if !s.CreatedAt.IsZero() || !s.UpdatedAt.IsZero() {
 		t.Error("slim should zero the timestamps (omitzero then drops them)")
@@ -293,7 +301,7 @@ func TestSlimIssue_DropsBodiesAndTimestampsKeepsCore(t *testing.T) {
 	}
 	// Marshaled slim issue must not contain the heavy keys.
 	b, _ := json.Marshal(s)
-	for _, gone := range []string{"description", "notes", "created_at", "updated_at", "created_by"} {
+	for _, gone := range []string{"description", "notes", "created_at", "updated_at", "created_by", "acceptance_criteria", "design"} {
 		if strings.Contains(string(b), gone) {
 			t.Errorf("slim JSON still contains %q: %s", gone, b)
 		}

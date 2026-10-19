@@ -52,6 +52,18 @@ type Issue struct {
 	DueAt       time.Time `json:"due_at,omitzero"`
 	ExternalRef string    `json:"external_ref,omitempty"`
 
+	// AcceptanceCriteria and Design are bd's structured sections
+	// (`bd create --acceptance` / `--design`, checked by `--validate`);
+	// Parent is the hierarchical parent's ID (`--parent`, the ".N"
+	// IDs); CloseReason is `bd close --reason`. All four are in bd's
+	// list and show JSON. The detail view renders them
+	// (would-you-kindly-p00h.2); -slim drops the two bodies with the
+	// description and notes.
+	AcceptanceCriteria string `json:"acceptance_criteria,omitempty"`
+	Design             string `json:"design,omitempty"`
+	Parent             string `json:"parent,omitempty"`
+	CloseReason        string `json:"close_reason,omitempty"`
+
 	// StartedAt is when bd first moved the issue to in_progress (set by
 	// `bd update --claim`). bd does NOT reset it on a later claim by
 	// someone else, so it dates the FIRST claim, not the current one —

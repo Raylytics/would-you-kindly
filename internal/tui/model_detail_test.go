@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -622,5 +623,84 @@ func TestDetailBack_ReEnrichesPoppedParent(t *testing.T) {
 	}
 	if dm.issue.ID != "a-1" || dm.issue.Notes != "enriched" {
 		t.Errorf("pop should re-enrich a-1; got id=%q notes=%q", dm.issue.ID, dm.issue.Notes)
+	}
+}
+
+// bd's structured sections render as their own labelled blocks after
+// the runbook, and collapse when empty (would-you-kindly-p00h.2).
+func TestDetailBody_RendersAcceptanceCriteriaAndDesign(t *testing.T) {
+	i := beads.Issue{Description: "do it", AcceptanceCriteria: "it is done when X", Design: "built with Y", Notes: "a note"}
+	out, _ := detailBody(i, 80, nil, nil, false, false, -1)
+	for _, want := range []string{"acceptance criteria", "it is done when X", "design", "built with Y", "notes", "a note"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detail body missing %q:\n%s", want, out)
+		}
+	}
+	// Order: runbook, acceptance, design, notes.
+	if !(strings.Index(out, "do it") < strings.Index(out, "it is done when X") &&
+		strings.Index(out, "it is done when X") < strings.Index(out, "built with Y") &&
+		strings.Index(out, "built with Y") < strings.Index(out, "a note")) {
+		t.Errorf("sections out of order:\n%s", out)
+	}
+
+	bare, _ := detailBody(beads.Issue{Description: "do it"}, 80, nil, nil, false, false, -1)
+	for _, absent := range []string{"acceptance criteria", "design"} {
+		if strings.Contains(bare, absent) {
+			t.Errorf("empty %q section should collapse:\n%s", absent, bare)
+		}
+	}
+}
+
+func TestDetailFactLines(t *testing.T) {
+	now := time.Now()
+	open := beads.Issue{ID: "a-1.2", Parent: "a-1", StartedAt: now.Add(-3 * time.Hour), CommentCount: 2}
+	got := detailFactLines(open)
+	if len(got) != 2 || got[0].label != "parent" || got[0].text != "a-1" {
+		t.Fatalf("open issue facts = %+v, want parent then activity", got)
+	}
+	if !strings.Contains(got[1].text, "started 3h ago") || !strings.Contains(got[1].text, "2 comments") {
+		t.Errorf("activity line = %q", got[1].text)
+	}
+
+	closed := beads.Issue{ID: "a-2", Status: "closed", ClosedAt: now.Add(-48 * time.Hour), CloseReason: "shipped in v1", CommentCount: 1}
+	got = detailFactLines(closed)
+	if len(got) != 2 {
+		t.Fatalf("closed issue facts = %+v, want activity then closed", got)
+	}
+	if got[0].text != "1 comment" {
+		t.Errorf("singular comment line = %q", got[0].text)
+	}
+	if got[1].label != "closed" || !strings.Contains(got[1].text, "2d ago") || !strings.Contains(got[1].text, "shipped in v1") {
+		t.Errorf("closed line = %+v", got[1])
+	}
+
+	// A close reason on an issue that is not closed (bd keeps the old
+	// reason after a reopen) is not shown as a closure.
+	if got := detailFactLines(beads.Issue{Status: "open", CloseReason: "stale"}); len(got) != 0 {
+		t.Errorf("open issue with a stale close reason should show no facts, got %+v", got)
+	}
+	if got := detailFactLines(beads.Issue{ID: "leaf"}); len(got) != 0 {
+		t.Errorf("a bare issue should add no lines, got %+v", got)
+	}
+}
+
+// The header lines reach the rendered view, and a hostile value is
+// sanitized like every other field.
+func TestDetailView_RendersFactLines(t *testing.T) {
+	src := &stubSource{issues: sampleIssues()}
+	m := applyFetched(New(src), src)
+	m.mode = modeDetail
+	m.detailIssue = beads.Issue{
+		ID: "a-9.1", Title: "child", Status: "closed", Parent: "a-9",
+		ClosedAt: time.Now().Add(-time.Hour), CloseReason: "done\x1b[2Jreason",
+	}
+	out := m.View()
+	for _, want := range []string{"parent: ", "a-9", "closed: ", "1h ago", "done", "reason"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detail view missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b[2J") {
+		t.Error("close reason escape sequence reached the screen")
 	}
 }

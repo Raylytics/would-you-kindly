@@ -55,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the action is not repeated, and carries the replay command. In
   multi-repo mode the row's workspace is resolved from the registry.
   This closes the generic handoff hook epic (would-you-kindly-2pwr).
+- **The detail view shows bd's structured fields** (would-you-kindly-p00h.2).
+  `acceptance_criteria` and `design` (`bd create --acceptance` /
+  `--design`) render as their own sections after the runbook and before
+  the notes; the header gains `parent: <id>` for a child issue, an
+  `activity:` line with when it was first started and its comment
+  count, and for a closed issue `closed: <when> — <reason>`. Each line
+  appears only when bd supplied the fact, so an open leaf issue reads as
+  before. `beads.Issue` now parses `acceptance_criteria`, `design`,
+  `parent` and `close_reason`; `-json` outputs carry them when set, and
+  `-slim` drops the two bodies with the description and notes.
 
 ### Changed
 
