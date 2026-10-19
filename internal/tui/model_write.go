@@ -482,12 +482,13 @@ func (m Model) handleBulkWriteResult(msg bulkWriteMsg) (tea.Model, tea.Cmd) {
 			m.optimisticListUpdate("close", t)
 		}
 	}
-	cmds := []tea.Cmd{m.fetchCmd(), flashClearCmd(m.statusGen)}
+	var cmds []tea.Cmd
 	if event, targets := bulkHookTargets(msg.action, msg.succeeded); len(targets) > 0 {
 		if hc := m.hookCmd(event, targets...); hc != nil {
 			cmds = append(cmds, hc)
 		}
 	}
+	cmds = append(cmds, m.fetchCmd(), flashClearCmd(m.statusGen))
 	return m, tea.Batch(cmds...)
 }
 
@@ -850,12 +851,14 @@ func (m Model) handleWriteResult(msg writeMsg) (tea.Model, tea.Cmd) {
 	// Refetch so the list reflects the write. Loading flag isn't set
 	// here because the existing data is still valid until the new
 	// fetch arrives — flashing "loading…" would just be noise.
-	cmds := []tea.Cmd{m.fetchCmd(), flashClearCmd(m.statusGen)}
 	// A human-label transition also goes to the handoff hook, now that
-	// bd has it; the hook's own result lands later as a hookMsg.
+	// bd has it; the hook's own result lands later as a hookMsg. Listed
+	// first so a test walking the batch meets it before the timer.
+	var cmds []tea.Cmd
 	if hc := m.hookCmd(hookEventFor(msg.action, msg.issue), msg.issue); hc != nil {
 		cmds = append(cmds, hc)
 	}
+	cmds = append(cmds, m.fetchCmd(), flashClearCmd(m.statusGen))
 	return m, tea.Batch(cmds...)
 }
 

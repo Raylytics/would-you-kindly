@@ -37,10 +37,10 @@ make check                    # the full local gate — run this before pushing
 ```
 
 `make check` mirrors the `test` CI workflow exactly (gofmt, docs-check,
-`go vet`, **golangci-lint**, build, `test -race`) plus the plugin-skills
-drift guard, so a green `make check` means a green push — provided your
-golangci-lint matches CI's pinned version (`make lint` warns if it
-doesn't). It exists because
+`go vet`, **golangci-lint**, build, `test -race`, **govulncheck**) plus
+the plugin-skills drift guard, so a green `make check` means a green
+push — provided your golangci-lint matches CI's pinned version (`make
+lint` warns if it doesn't). It exists because
 the linter gate (golangci-lint / staticcheck) used to run only in CI — a
 red `test` workflow shipped unnoticed for a long time because local runs
 skipped it. Don't push on a bare `go test`; run `make check`.
@@ -54,6 +54,7 @@ go test ./...                 # full suite (no race)
 go test -race ./...           # race detector (load-bearing for MultiBDSource)
 go vet ./...
 make lint                     # golangci-lint at the CI-pinned version
+make vuln                     # govulncheck at the CI-pinned version (go.mod pins the patched toolchain it scans)
 ```
 
 One CI workflow (`test`) runs per push — the full gate above, on both

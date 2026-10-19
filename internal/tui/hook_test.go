@@ -27,7 +27,7 @@ func (f *stubFirer) Fire(_ context.Context, event string, i beads.Issue) (string
 
 // findHookMsg runs cmd (walking batches) and returns the hookMsg it
 // produces, if any. Each leaf runs with a deadline so flashClearCmd's
-// timer never stalls the test.
+// timer costs a negative lookup at most a second.
 func findHookMsg(cmd tea.Cmd) (hookMsg, bool) {
 	if cmd == nil {
 		return hookMsg{}, false
@@ -40,22 +40,13 @@ func findHookMsg(cmd tea.Cmd) (hookMsg, bool) {
 		case hookMsg:
 			return v, true
 		case tea.BatchMsg:
-			// Children run concurrently: a sibling flashClearCmd timer
-			// must not delay finding the hook result.
-			type res struct {
-				hm hookMsg
-				ok bool
-			}
-			results := make(chan res, len(v))
+			// Children run one at a time (the stub source is not
+			// goroutine-safe); the model lists the hook command first,
+			// so a positive lookup returns before the fetch and the
+			// flash timer run.
 			for _, c := range v {
-				go func(c tea.Cmd) {
-					hm, ok := findHookMsg(c)
-					results <- res{hm, ok}
-				}(c)
-			}
-			for range v {
-				if r := <-results; r.ok {
-					return r.hm, true
+				if hm, ok := findHookMsg(c); ok {
+					return hm, true
 				}
 			}
 		}
