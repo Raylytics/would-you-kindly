@@ -709,26 +709,46 @@ func TestDetailView_RendersFactLines(t *testing.T) {
 // a view taller than the terminal makes bubbletea drop the TOP lines,
 // i.e. the badge and title (roborev review of b762ab4).
 func TestDetailView_HeightStaysWithinTerminal(t *testing.T) {
-	src := &stubSource{issues: sampleIssues()}
-	m := applyFetched(New(src), src)
-	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = model.(Model)
-	m.mode = modeDetail
-	m.detailIssue = beads.Issue{
-		ID: "a-9.1", Title: "child", Status: "closed", Parent: "a-9",
-		Labels:    []string{"human", "src:agent"},
-		StartedAt: time.Now().Add(-5 * time.Hour), CommentCount: 3,
-		ClosedAt: time.Now().Add(-time.Hour), CloseReason: "done",
-		Description: strings.Repeat("line\n", 40),
+	now := time.Now()
+	cases := map[string]beads.Issue{
+		"closed child with facts": {
+			ID: "a-9.1", Title: "child", Status: "closed", Parent: "a-9",
+			Labels:    []string{"human", "src:agent"},
+			StartedAt: now.Add(-5 * time.Hour), CommentCount: 3,
+			ClosedAt: now.Add(-time.Hour), CloseReason: "done",
+			Description: strings.Repeat("line\n", 40),
+		},
+		// An in_progress row with an assignee carries an inferred lease,
+		// which adds a `lease:` line (roborev review of 6f0fd37).
+		"claimed child with facts": {
+			ID: "a-9.2", Title: "claimed", Status: "in_progress", Parent: "a-9",
+			Assignee: "claude-abc12345", UpdatedAt: now, StartedAt: now.Add(-time.Hour),
+			Labels:       []string{"src:agent"},
+			CommentCount: 2,
+			Description:  strings.Repeat("line\n", 40),
+		},
 	}
-	(&m).syncDetailViewport()
-	out := m.View()
-	if h := lipgloss.Height(out); h > 20 {
-		t.Errorf("detail view is %d lines tall on a 20-line terminal:\n%s", h, out)
-	}
-	for _, want := range []string{"child", "parent: ", "closed: "} {
-		if !strings.Contains(out, want) {
-			t.Errorf("detail view missing %q:\n%s", want, out)
-		}
+	for name, issue := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := &stubSource{issues: sampleIssues()}
+			m := applyFetched(New(src), src)
+			model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+			m = model.(Model)
+			m.mode = modeDetail
+			m.detailIssue = issue
+			(&m).syncDetailViewport()
+			out := m.View()
+			if h := lipgloss.Height(out); h > 20 {
+				t.Errorf("detail view is %d lines tall on a 20-line terminal:\n%s", h, out)
+			}
+			for _, want := range []string{issue.Title, "parent: "} {
+				if !strings.Contains(out, want) {
+					t.Errorf("detail view missing %q:\n%s", want, out)
+				}
+			}
+			if issue.Status == "in_progress" && !strings.Contains(out, "lease: ") {
+				t.Errorf("claimed issue should show its lease line:\n%s", out)
+			}
+		})
 	}
 }

@@ -493,15 +493,18 @@ func (m Model) resolveDetailDeps(id string) tea.Cmd {
 	}
 }
 
-// detailChromeHeight is the number of FIXED lines viewDetail emits
-// outside the scrolling body — used by syncDetailViewport to size the
-// viewport. Counts: badge line, blank, title, meta, blank, labels
-// (assume present), blank, footer help, plus a one-line breathing
-// buffer. Slightly over-counts when labels are missing (the viewport
-// just gets one extra line, never less). The fact lines
-// (detailFactLines: parent / activity / closed) vary per issue and are
-// added on top by syncDetailViewport.
+// detailChromeHeight is the typical number of lines viewDetail emits
+// outside the scrolling body: badge line, blank, title, its margin,
+// meta, blank, labels, blank, footer help. The live budget is computed
+// from the rendered header (detailHeaderRows + detailFooterRows) so
+// variable lines (facts, lease) are counted; this constant remains the
+// budget for the :bd output overlay and the fallback when there is no
+// issue to render.
 const detailChromeHeight = 9
+
+// detailFooterRows is what viewDetail paints below the body: the footer
+// help line (the newline that ends the viewport is counted with it).
+const detailFooterRows = 1
 
 // detailBody composes the scrolling-eligible portion of the
 // detail view: the section headings, description, and notes.
@@ -622,19 +625,33 @@ func writeDepSection(b *strings.Builder, width int, header string, rows []beads.
 	return selLine
 }
 
-func (m Model) viewDetail() string {
-	// Prefer the enriched (Detail-fetched) issue if available;
-	// otherwise fall back to the slim row from the list. m.detailIssue
-	// is set on entry to modeDetail; the Detail Cmd updates it
-	// asynchronously with the full record (including notes).
-	i := m.detailIssue
-	if i.ID == "" {
-		if len(m.visible) == 0 {
-			return ""
-		}
-		i = m.visible[m.cursor]
+// detailSubject is the issue the full-screen detail view shows: the
+// enriched (Detail-fetched) issue when there is one, else the slim row
+// under the cursor. ok=false means there is nothing to show.
+func (m Model) detailSubject() (beads.Issue, bool) {
+	if m.detailIssue.ID != "" {
+		return m.detailIssue, true
 	}
+	if len(m.visible) == 0 || m.cursor < 0 || m.cursor >= len(m.visible) {
+		return beads.Issue{}, false
+	}
+	return m.visible[m.cursor], true
+}
 
+// detailHeaderRows is how many terminal rows detailHeader occupies above
+// the body: the header ends in a blank line, so its newline count is
+// its row count. syncDetailViewport subtracts this (plus the footer)
+// from the terminal height, so every line the header grows — badge,
+// facts, lease, labels — is paid for by the body, never by the title
+// scrolling off the top (roborev review of 6f0fd37).
+func (m Model) detailHeaderRows(i beads.Issue) int {
+	return strings.Count(m.detailHeader(i), "\n")
+}
+
+// detailHeader renders everything viewDetail paints above the scrolling
+// body. One function for both the paint and the viewport budget, so the
+// two cannot drift apart.
+func (m Model) detailHeader(i beads.Issue) string {
 	var b strings.Builder
 
 	// Responsibility badge on its own line above the title — for
@@ -677,6 +694,16 @@ func (m Model) viewDetail() string {
 		b.WriteString(sanitizeInline(strings.Join(i.Labels, ", ")))
 		b.WriteString("\n\n")
 	}
+	return b.String()
+}
+
+func (m Model) viewDetail() string {
+	i, ok := m.detailSubject()
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(m.detailHeader(i))
 
 	// A write prompt opened from the detail view (close confirm /
 	// defer input / note textarea) renders in place of the footer.

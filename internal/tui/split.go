@@ -182,10 +182,14 @@ func (m *Model) syncDetailViewport() {
 		return
 	}
 	m.detailVP.Width = m.width
-	// The fact lines (parent / activity / closed) are two rows each
-	// (line + blank) on top of the fixed chrome; without counting them
-	// the view outgrows the terminal and the renderer drops the title.
-	m.detailVP.Height = max(m.height-detailChromeHeight-2*len(detailFactLines(m.detailIssue)), 1)
+	// Budget from the header as it will actually render (facts, lease,
+	// labels included): a view taller than the terminal makes the
+	// renderer drop the TOP rows, i.e. the badge and title.
+	rows := detailChromeHeight
+	if i, ok := m.detailSubject(); ok {
+		rows = m.detailHeaderRows(i) + detailFooterRows
+	}
+	m.detailVP.Height = max(m.height-rows, 1)
 }
 
 // followCursor keeps the pane on the cursor row while the list is
