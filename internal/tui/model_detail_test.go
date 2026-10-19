@@ -637,10 +637,10 @@ func TestDetailBody_RendersAcceptanceCriteriaAndDesign(t *testing.T) {
 		}
 	}
 	// Order: runbook, acceptance, design, notes.
-	if !(strings.Index(out, "do it") < strings.Index(out, "it is done when X") &&
-		strings.Index(out, "it is done when X") < strings.Index(out, "built with Y") &&
-		strings.Index(out, "built with Y") < strings.Index(out, "a note")) {
-		t.Errorf("sections out of order:\n%s", out)
+	runbook, accept := strings.Index(out, "do it"), strings.Index(out, "it is done when X")
+	design, notes := strings.Index(out, "built with Y"), strings.Index(out, "a note")
+	if runbook > accept || accept > design || design > notes {
+		t.Errorf("sections out of order (runbook %d, acceptance %d, design %d, notes %d):\n%s", runbook, accept, design, notes, out)
 	}
 
 	bare, _ := detailBody(beads.Issue{Description: "do it"}, 80, nil, nil, false, false, -1)
