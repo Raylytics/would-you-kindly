@@ -431,6 +431,10 @@ func TestCheckRepo_CLAUDEMDWykAware(t *testing.T) {
 	}{
 		{"with marker", strPtr("# Doc\n\n" + wykConventionsBeginMarker + "\n...\n" + wykConventionsEndMarker + "\n"), statusPass},
 		{"without marker", strPtr("# Doc\n\nno wyk block here\n"), statusWarn},
+		// Hand-written conventions count (would-you-kindly-1ygv): the
+		// file names both load-bearing commands without the seeded block.
+		{"hand-written wyk-aware", strPtr("# Doc\n\nHand a task off with `wyk handoff <id>`; work what `wyk inbox` returns.\n"), statusPass},
+		{"one command alone is a mention, not a convention", strPtr("# Doc\n\nsee wyk handoff\n"), statusWarn},
 		{"no file", nil, statusWarn},
 	}
 	for _, tc := range cases {

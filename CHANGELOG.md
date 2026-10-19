@@ -100,7 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself (`WYK_ALLOW_BD_CREATE=1 bd create …` or `export
   WYK_ALLOW_BD_CREATE=1; …`), since an agent cannot set the hook's own
   environment; the block message now says so.
-
+- **`wyk doctor` accepts a hand-written wyk-aware CLAUDE.md**
+  (would-you-kindly-1ygv). The `CLAUDE.md wyk-aware` check only looked
+  for the block `wyk init` seeds, so a repo whose CLAUDE.md teaches
+  `wyk handoff` and `wyk inbox` by hand (wyk's own, for one) was told
+  it was "bd-aware but not wyk-aware" and to re-run init, which would
+  have pasted a second copy of the same conventions. A file that names
+  both commands now passes with a note that `wyk init` can add the
+  maintained block; one that names neither still warns.
 ## [0.8.0] — 2026-10-12
 
 ### Added

@@ -980,6 +980,14 @@ func doltRemoteCheck(prefix string, out []byte, err error) (check, bool) {
 	}, true
 }
 
+// handWrittenWykAware reports whether a CLAUDE.md without the seeded
+// conventions block still teaches agents the two commands the contract
+// turns on: handing work to a human and reading what came back. Both
+// must appear; one alone is a mention, not a convention.
+func handWrittenWykAware(body []byte) bool {
+	return bytes.Contains(body, []byte("wyk handoff")) && bytes.Contains(body, []byte("wyk inbox"))
+}
+
 // claudeBlockSalienceNote returns a hint when the wyk conventions block
 // sits deep in a LONG CLAUDE.md — it's loaded either way, but low in a
 // big file an agent is likelier to under-weight it (would-you-kindly-rp73).
@@ -1228,6 +1236,16 @@ func checkRepo(r registry.Repo) []check {
 			c.detail = note
 		}
 		out = append(out, c)
+	case err == nil && handWrittenWykAware(body):
+		// No seeded block, but the file teaches the load-bearing commands
+		// by hand (wyk's own CLAUDE.md is the canonical case): that is
+		// wyk-aware, and re-running init would paste a second copy of
+		// the same conventions (would-you-kindly-1ygv).
+		out = append(out, check{
+			name:   prefix + ": CLAUDE.md wyk-aware",
+			status: statusPass,
+			detail: "hand-written (no wyk init block) — mentions `wyk handoff` and `wyk inbox`; `wyk init` adds the maintained conventions block if you want it kept current for you",
+		})
 	case err == nil || errors.Is(err, os.ErrNotExist):
 		noun := "CLAUDE.md has no wyk conventions block"
 		if errors.Is(err, os.ErrNotExist) {
