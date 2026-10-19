@@ -173,3 +173,22 @@ handle later" defeats the round-trip. Exception: the user is
 mid-conversation about something explicitly urgent, or the
 expected unblocker artifact is actually missing (re-flag `human`
 with a note explaining what's still needed; don't sit silently).
+
+## Secrets
+
+**Every credential an agent uses lives in 1Password.** API keys, tokens, DSNs, OAuth client secrets, webhook URLs, signing keys: if Claude Code, a cron job, an MCP server, or CI needs it, 1Password is the source of truth, and anything else (a local `.env`, SSM, GitHub Secrets, a server-side env file) is a derived copy seeded from it. This applies to the credentials this repo already uses, not only to new ones.
+
+- **Reference, don't copy.** Tracked files carry env var *names* and `op://<vault>/<item>/<field>` references, never values. Load at run time with `op run --env-file=op.env -- <cmd>` (an `op.env` of `op://` lines, gitignored) or `op read "op://..."` piped straight into the consumer.
+- **Name items `<repo>-<service>`** (for example `mc-epn`), one item per service, fields named after the env vars. Use the 1Password account that owns the work (personal `my.1password.com`, VisionWrights, or Newtack) and pass `--account` when more than one is signed in.
+- **A literal `.env` is debt, not a pattern.** It must be gitignored and `chmod 600`, and the inventory below marks it as pending migration. Move the values into 1Password the next time you touch them.
+- **Never print a secret.** Prove a key works by calling the API. Don't `cat` env files, echo variables, or paste values into transcripts, commit messages, or this file.
+- **Found a literal secret in a tracked file or in history?** Stop and tell the owner. It needs rotating and purging, and that is their call.
+- **Adding a credential:** create the 1Password item, add the `op://` line to `op.env.example` (or this repo's equivalent template), add a row below, and confirm the local copy is ignored.
+
+### Credentials this repo uses
+
+| Env var | Used by / purpose | Where it lives today | 1Password item |
+|---|---|---|---|
+| `HOMEBREW_TAP_GITHUB_TOKEN` | `.github/workflows/release.yml`: goreleaser pushes the updated cask to the Homebrew tap on a tag | GitHub Actions secret on this repo (CI only; no local copy) | `wyk-homebrew-tap` (to create; the PAT scoped to the tap repo) |
+
+Not secrets: `GITHUB_TOKEN` in that workflow is the ephemeral `github.token`; the `WYK_*`, `XDG_*`, `BEADS_ACTOR`, and `EDITOR` env vars are plain config.

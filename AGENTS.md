@@ -28,6 +28,10 @@ Two rules that are easy to miss:
   or `wyk handoff -create "…"`) — a task without the `human` label
   defaults to the agent and the human never sees it.
 
+## Secrets
+
+Every credential an agent uses (API keys, tokens, DSNs, OAuth secrets, webhook URLs) lives in **1Password**; local `.env` files, CI secrets, and server env files are derived copies, never the source of truth. Tracked files carry env var **names** and `op://<vault>/<item>/<field>` references only. Load secrets at run time with `op run --env-file=op.env -- <cmd>` or `op read`; never print, echo, or paste a value. The Secrets section of `CLAUDE.md` holds this repo's credential inventory.
+
 The block below is bd's standard integration boilerplate.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
