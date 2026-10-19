@@ -43,10 +43,13 @@ make check
 ```
 
 It mirrors the `test` CI workflow exactly — gofmt, the generated-docs
-drift check, `go vet`, golangci-lint at CI's pinned version, build, and
-`go test -race` — plus the plugin-skills drift guard. A green
-`make check` is a green push. The individual pieces, when you want one
-à la carte:
+drift check, `go vet`, golangci-lint at CI's pinned version, build,
+`go test -race`, and govulncheck at CI's pinned version — plus the
+plugin-skills drift guard. A green `make check` is a green push.
+go.mod names the exact Go patch release, so `GOTOOLCHAIN=auto` fetches
+the same patched standard library CI scans; bump it when govulncheck
+reports a stdlib fix. The individual pieces, when you want one à la
+carte:
 
 ```bash
 go test -race -timeout 5m ./...

@@ -108,6 +108,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have pasted a second copy of the same conventions. A file that names
   both commands now passes with a note that `wyk init` can add the
   maintained block; one that names neither still warns.
+- **`make check` runs govulncheck, and go.mod pins the patched
+  toolchain** (would-you-kindly-351g). The local gate promised to
+  mirror the `test` workflow but skipped its vulnerability scan, and
+  go.mod's bare `go 1.26` let a stale local 1.26.3 satisfy it, so a
+  green `make check` carried 16 called standard-library CVEs that CI
+  (which installs the latest 1.26.x patch) never saw. A `vuln` target
+  runs govulncheck at the CI-pinned version (`GOVULNCHECK_VERSION`,
+  bumped together with test.yml like golangci-lint), `make check` calls
+  it last, and `go 1.26.9` in go.mod makes `GOTOOLCHAIN=auto` fetch the
+  patched stdlib for every local build and release.
+
 ## [0.8.0] — 2026-10-12
 
 ### Added

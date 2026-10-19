@@ -4,7 +4,7 @@
 # committed doc snapshots the would-you-kindly.raylytics.io docs agent
 # reads, and the plugin-skills sync.
 
-.PHONY: docs-snapshot docs-check plugin-skills plugin-skills-check backlog-snapshot backlog-snapshot-check lint check help
+.PHONY: docs-snapshot docs-check plugin-skills plugin-skills-check backlog-snapshot backlog-snapshot-check lint vuln check help
 
 # Scrubbed, read-only snapshot of this repo's bd tracker for GitHub
 # visitors (docs/backlog-snapshot.md). Regeneration needs bd, so it is
@@ -23,6 +23,13 @@ backlog-snapshot-check:
 # local linter version running different default checks than CI. Bump
 # here AND in test.yml together.
 GOLANGCI_VERSION := v2.12.2
+
+# govulncheck version CI pins (.github/workflows/test.yml). Same rule as
+# GOLANGCI_VERSION: bump here AND in test.yml together. `make check`
+# runs it because CI does — a scan that only ran in CI let a stale local
+# toolchain (go.mod's bare `go 1.26` satisfied by an old 1.26.x) carry
+# called stdlib CVEs through a green local gate (would-you-kindly-351g).
+GOVULNCHECK_VERSION := v1.3.0
 
 # Regenerate the markdown snapshots under docs/generated/. Build a
 # fresh binary into /tmp so this target works from a dirty tree
@@ -96,6 +103,15 @@ lint:
 	fi
 	@golangci-lint run
 
+# govulncheck at the CI-pinned version. `go run …@version` resolves
+# through the module cache, so after the first run it works offline.
+# Reports vulnerabilities the code actually CALLS, in dependencies and
+# the Go standard library — which is why go.mod pins the patched
+# toolchain: the stdlib govulncheck sees is the one that built the
+# binary.
+vuln:
+	@echo "==> govulncheck"; go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 # The full local gate. Runs the same checks as the `test` CI workflow,
 # in the same order, so a green `make check` means a green push — the
 # missing link that let a golangci-lint failure ship unnoticed. Also runs
@@ -110,12 +126,14 @@ check:
 	@$(MAKE) --no-print-directory plugin-skills-check
 	@$(MAKE) --no-print-directory backlog-snapshot-check
 	@echo "==> go test -race"; go test -race -timeout 5m ./...
+	@$(MAKE) --no-print-directory vuln
 	@echo "check: all local gates passed (mirrors the test CI workflow)"
 
 help:
 	@echo "Targets:"
 	@echo "  check                run the full local gate (mirrors the test CI workflow) — use before pushing"
 	@echo "  lint                 golangci-lint run (CI-pinned version)"
+	@echo "  vuln                 govulncheck ./... (CI-pinned version; run by CI + make check)"
 	@echo "  docs-snapshot        regenerate docs/generated/{keymap.md,cli.md}"
 	@echo "  docs-check           fail if docs/generated/ is stale (run by CI + make check)"
 	@echo "  plugin-skills        sync plugin/skills/ from internal/skills/data/"
