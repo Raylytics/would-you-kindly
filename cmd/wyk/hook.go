@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/jimbottle/would-you-kindly/internal/beads"
+	"github.com/jimbottle/would-you-kindly/internal/hooks"
 )
 
 // closeRefRE matches lines of a commit message that signal an
@@ -335,6 +336,13 @@ func runHookBDCreateGuard(stdin io.Reader) int {
 // should never make the user's terminal look "failed". Each failure
 // is printed and we move on.
 //
+// When a handoff hook is configured for the close event, closing a
+// HUMAN-labelled issue also fires that event, so the external mirror
+// of the task (docs/HOOKS.md) is completed by the same commit
+// (would-you-kindly-2pwr.6). The hook's failure follows the same rule
+// as a close failure: reported on stderr with the replay command, exit
+// code untouched.
+//
 // Exit codes:
 //
 //	0   success (or partial success — see above)
@@ -377,11 +385,26 @@ func runHookPostCommit(args []string) int {
 		return 0
 	}
 
-	client := beads.NewClient()
-	client.Dir = *dir
+	client := newPostCommitClient(*dir)
+	ctx := context.Background()
+	// Labels are only known from a read, and the read is only worth a
+	// bd round trip when a hook wants the close event: an unconfigured
+	// hook costs the commit nothing extra.
+	hd := newHandoffHookDispatcher()
+	wantClose := hd.Config.Wants(hooks.EventClose)
 
 	for _, id := range ids {
-		if err := client.Close(context.Background(), id); err != nil {
+		var before *beads.Issue
+		if wantClose {
+			if got, err := client.Show(ctx, id); err == nil {
+				before = &got
+			}
+			// A failed read is not fatal: the close below still runs
+			// (bd says if the id is bad), and with no labels there is no
+			// way to know the issue was human-flagged, so no event fires.
+			// `wyk hook dispatch close <id>` replays it by hand.
+		}
+		if err := client.Close(ctx, id); err != nil {
 			switch {
 			case errors.Is(err, beads.ErrBDNotFound):
 				fmt.Fprintln(os.Stderr, "wyk hook: bd is not installed")
@@ -398,8 +421,38 @@ func runHookPostCommit(args []string) int {
 			}
 		}
 		fmt.Printf("wyk hook: closed %s\n", id)
+		if before != nil && before.IsHuman() {
+			// The script sees the issue as it now is: closed. The read
+			// above predates the write, so patch the one field the
+			// close changed rather than pay for a second read.
+			closed := *before
+			closed.Status = "closed"
+			// Exit code deliberately dropped: the close has landed and
+			// the commit must not look failed. fireHandoffHook has
+			// already printed the failure and the replay command.
+			_ = fireHandoffHook(ctx, client, hd, handoffHookInput{
+				Event: hooks.EventClose, Actor: hooks.ActorHook, ID: id, Dir: *dir, Issue: &closed,
+			}, os.Stdout, os.Stderr)
+		}
 	}
 	return 0
+}
+
+// postCommitClient is the bd surface runHookPostCommit needs: the close
+// itself plus the hookIssueClient slice the close event's payload is
+// built from. An interface so the hook can be tested with a stub
+// instead of a bd binary (the CLAUDE.md swappable-runner rule).
+type postCommitClient interface {
+	hookIssueClient
+	Close(ctx context.Context, id string) error
+}
+
+// newPostCommitClient is the seam tests replace; production shells out
+// through beads.Client.
+var newPostCommitClient = func(dir string) postCommitClient {
+	c := beads.NewClient()
+	c.Dir = dir
+	return c
 }
 
 // commitMessage reads the full message of the given git ref. Uses

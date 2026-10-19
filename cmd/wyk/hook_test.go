@@ -1,9 +1,17 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jimbottle/would-you-kindly/internal/beads"
+	"github.com/jimbottle/would-you-kindly/internal/hooks"
 )
 
 func TestBDCreateGuard(t *testing.T) {
@@ -204,5 +212,164 @@ func TestHookPostCommit_FlagsAfterSHA(t *testing.T) {
 	_, stderr = captureOutErr(t, func() { code = runHookPostCommit([]string{"HEAD", "extra"}) })
 	if code != 64 || !strings.Contains(stderr, `wyk hook post-commit: unexpected argument "extra" after <commit-sha>`) {
 		t.Errorf("extra positional: exit %d, stderr %q", code, stderr)
+	}
+}
+
+// postCommitStub is the bd slice the post-commit hook touches, with
+// call counters so a test can assert a read happened only when a hook
+// wanted the close event.
+type postCommitStub struct {
+	issue     beads.Issue
+	showErr   error
+	closeErr  error
+	showCalls int
+	closed    []string
+}
+
+func (s *postCommitStub) Show(context.Context, string) (beads.Issue, error) {
+	s.showCalls++
+	return s.issue, s.showErr
+}
+func (s *postCommitStub) Close(_ context.Context, id string) error {
+	s.closed = append(s.closed, id)
+	return s.closeErr
+}
+func (s *postCommitStub) SetExternalRef(context.Context, string, string) error { return nil }
+func (s *postCommitStub) Note(context.Context, string, string) error           { return nil }
+func (s *postCommitStub) IssuePrefix(context.Context) (string, error)          { return "wyk", nil }
+
+// gitRepoWithCommit makes a throwaway repo whose HEAD carries msg. Hooks
+// are pointed at an empty directory so a user-level core.hooksPath (a
+// real wyk post-commit hook, say) cannot run inside the test.
+func gitRepoWithCommit(t *testing.T, msg string) string {
+	t.Helper()
+	dir := t.TempDir()
+	noHooks := filepath.Join(dir, "no-hooks")
+	if err := os.MkdirAll(noHooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "core.hooksPath=" + noHooks}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "--quiet")
+	run("commit", "--quiet", "--allow-empty", "-m", msg)
+	return dir
+}
+
+// withPostCommitStubs swaps both seams the post-commit hook reaches
+// through: the bd client and the handoff-hook dispatcher.
+func withPostCommitStubs(t *testing.T, c *postCommitStub, d *hooks.Dispatcher) {
+	t.Helper()
+	prevClient, prevDisp := newPostCommitClient, newHandoffHookDispatcher
+	newPostCommitClient = func(string) postCommitClient { return c }
+	newHandoffHookDispatcher = func() *hooks.Dispatcher { return d }
+	t.Cleanup(func() { newPostCommitClient, newHandoffHookDispatcher = prevClient, prevDisp })
+}
+
+// A commit that closes a HUMAN-labelled issue fires the hook's close
+// event with the issue as it now is (would-you-kindly-2pwr.6).
+func TestHookPostCommit_FiresCloseForHumanIssue(t *testing.T) {
+	dir := gitRepoWithCommit(t, "fix: done\n\nCloses: wyk-42")
+	c := &postCommitStub{issue: beads.Issue{ID: "wyk-42", Status: "open", Labels: []string{"human", "src:agent"}, ExternalRef: "basicdo:task:1"}}
+	r := &stubHookRunner{}
+	withPostCommitStubs(t, c, newTestDispatcher(r))
+
+	var code int
+	out, _ := captureOutErr(t, func() { code = runHookPostCommit([]string{"HEAD", "-C", dir}) })
+	if code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if !reflect.DeepEqual(c.closed, []string{"wyk-42"}) {
+		t.Errorf("closed %v, want [wyk-42]", c.closed)
+	}
+	if !r.called {
+		t.Fatal("close event not dispatched for a human-labelled issue")
+	}
+	if r.payload.Event != hooks.EventClose || r.payload.Actor != hooks.ActorHook {
+		t.Errorf("payload event/actor = %s/%s, want close/hook", r.payload.Event, r.payload.Actor)
+	}
+	if r.payload.Issue == nil || r.payload.Issue.Status != "closed" {
+		t.Errorf("payload issue = %+v, want status closed", r.payload.Issue)
+	}
+	if r.payload.External == nil || r.payload.External.Ref != "basicdo:task:1" {
+		t.Errorf("payload external = %+v, want the recorded ref echoed back", r.payload.External)
+	}
+	if !strings.Contains(out, "closed wyk-42") || !strings.Contains(out, "hook (close)") {
+		t.Errorf("stdout = %q, want the close line and the hook line", out)
+	}
+}
+
+// An agent-owned issue has no external mirror; no event.
+func TestHookPostCommit_NoCloseEventForAgentIssue(t *testing.T) {
+	dir := gitRepoWithCommit(t, "fix: done\n\nCloses: wyk-7")
+	c := &postCommitStub{issue: beads.Issue{ID: "wyk-7", Labels: []string{"src:agent"}}}
+	r := &stubHookRunner{}
+	withPostCommitStubs(t, c, newTestDispatcher(r))
+
+	captureOutErr(t, func() { runHookPostCommit([]string{"HEAD", "-C", dir}) })
+	if r.called {
+		t.Error("close event fired for an issue without the human label")
+	}
+	if len(c.closed) != 1 {
+		t.Errorf("closed %v, want exactly one close", c.closed)
+	}
+}
+
+// With no hook (or one not subscribed to close) the commit pays for no
+// extra read: the pre-close `bd show` is skipped entirely.
+func TestHookPostCommit_NoHookSkipsTheRead(t *testing.T) {
+	dir := gitRepoWithCommit(t, "fix: done\n\nCloses: wyk-42")
+	c := &postCommitStub{issue: beads.Issue{ID: "wyk-42", Labels: []string{"human"}}}
+	r := &stubHookRunner{}
+	withPostCommitStubs(t, c, newTestDispatcher(r, hooks.EventHandoff))
+
+	captureOutErr(t, func() { runHookPostCommit([]string{"HEAD", "-C", dir}) })
+	if c.showCalls != 0 {
+		t.Errorf("bd show called %d times with no close subscription, want 0", c.showCalls)
+	}
+	if r.called {
+		t.Error("hook fired although its events exclude close")
+	}
+}
+
+// A failing hook must not make the commit look failed: exit 0, the
+// replay command on stderr.
+func TestHookPostCommit_HookFailureKeepsExitZero(t *testing.T) {
+	dir := gitRepoWithCommit(t, "fix: done\n\nCloses: wyk-42")
+	c := &postCommitStub{issue: beads.Issue{ID: "wyk-42", Labels: []string{"human"}}}
+	r := &stubHookRunner{err: &hooks.ExecError{ExitCode: 1, Stderr: "api down"}}
+	withPostCommitStubs(t, c, newTestDispatcher(r))
+
+	var code int
+	_, stderr := captureOutErr(t, func() { code = runHookPostCommit([]string{"HEAD", "-C", dir}) })
+	if code != 0 {
+		t.Errorf("exit %d, want 0 — the close landed", code)
+	}
+	if !strings.Contains(stderr, "wyk hook dispatch -C "+dir+" close wyk-42") {
+		t.Errorf("stderr = %q, want the replay command", stderr)
+	}
+}
+
+// A read that fails leaves the close in place and simply fires nothing.
+func TestHookPostCommit_ReadFailureStillCloses(t *testing.T) {
+	dir := gitRepoWithCommit(t, "fix: done\n\nCloses: wyk-42")
+	c := &postCommitStub{showErr: errors.New("dolt busy")}
+	r := &stubHookRunner{}
+	withPostCommitStubs(t, c, newTestDispatcher(r))
+
+	var code int
+	captureOutErr(t, func() { code = runHookPostCommit([]string{"HEAD", "-C", dir}) })
+	if code != 0 || len(c.closed) != 1 {
+		t.Errorf("exit %d, closed %v; want 0 and one close", code, c.closed)
+	}
+	if r.called {
+		t.Error("hook fired without knowing the labels")
 	}
 }

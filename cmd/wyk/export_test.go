@@ -343,3 +343,19 @@ func TestCollectExport_OpenByDefaultClosedOptIn(t *testing.T) {
 		t.Errorf("-closed export should include the closed issue (2 total); got %d", n)
 	}
 }
+
+// external_ref is how an agent (and a hook adapter) finds the task a
+// handoff mirrored elsewhere; -slim must keep it (would-you-kindly-2pwr.8).
+func TestSlimIssue_KeepsExternalRefAndDue(t *testing.T) {
+	in := beads.Issue{ID: "wyk-1", ExternalRef: "basicdo:task:abc", DueAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Description: "body"}
+	got := slimIssue(in)
+	if got.ExternalRef != in.ExternalRef {
+		t.Errorf("slim dropped external_ref: %+v", got)
+	}
+	if got.DueAt.IsZero() {
+		t.Errorf("slim dropped due_at: %+v", got)
+	}
+	if got.Description != "" {
+		t.Errorf("slim kept the description: %+v", got)
+	}
+}

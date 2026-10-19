@@ -58,7 +58,7 @@ so a hostile issue title cannot become a shell command.
 | --------- | ----------------------------------------------------------------------------- | ----------------------------------------------------- |
 | `handoff` | the `human` label is added and the runbook written                            | `wyk handoff`, `wyk handoff -create`, TUI `H` (soon)  |
 | `bounce`  | the `human` label is removed — the human sent it back to the agent            | TUI `H` (soon), `wyk hook dispatch bounce <id>`       |
-| `close`   | a human-labelled issue is closed                                              | TUI close, post-commit auto-close (soon), `dispatch`  |
+| `close`   | a human-labelled issue is closed                                              | TUI close, post-commit auto-close, `dispatch`         |
 | `ping`    | nothing — a probe with no issue, so a script can prove it starts and connects | `wyk doctor`, `wyk hook dispatch ping`                |
 
 Transitions made with the raw `bd` CLI (`bd label add <id> human`) are
@@ -211,11 +211,19 @@ never discovers the external task after the fact:
 - `wyk handoff -dry-run` prints `would run handoff hook: <command>`.
 - `wyk handoff` prints `hook (handoff): <url>` as its last line on
   success, and the stderr block above on failure (exit 3).
-- `wyk conventions` (text and `-json`) describes the hook when one is
-  configured, and `wyk inbox -json` / `wyk export` carry each issue's
-  `external_ref`. *(Landing with the rest of the epic.)*
+- `wyk conventions` ends with a handoff-hook section that says whether
+  a hook is configured here and what a handoff then causes; `-json`
+  carries the same under `handoff_hook`. `wyk inbox -json` and
+  `wyk export` carry each issue's `external_ref` (kept through `-slim`).
 - `wyk doctor` runs a `ping` and reports whether the command exists,
-  is executable, and answers. *(Same.)*
+  is executable, and answers — with the script's stderr when it does
+  not — before any handoff depends on it.
+- The Claude Code plugin's SessionStart hook prints one line when a
+  hook is active, and the `wyk-handoff` skill explains exit 3, the
+  replay command, and `-due`.
+- A commit whose `Closes:` trailer names a human-labelled issue fires
+  `close` from the post-commit hook (`actor: "hook"`), so the mirror is
+  completed by the same commit that closes the issue.
 
 ## Writing an adapter
 

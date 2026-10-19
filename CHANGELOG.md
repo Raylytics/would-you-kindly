@@ -23,6 +23,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backlog-snapshot-check` (in `make check` and CI) fails if any of those
   survive in the committed file and warns when it is more than 60 days
   old; regeneration stays local because CI has no bd.
+- **Handoff hook: the post-commit auto-close fires `close` for a
+  human-labelled issue** (would-you-kindly-2pwr.6). A commit whose
+  `Closes:` trailer names a task that is a human's completes its
+  external mirror too, with `actor: "hook"`. The pre-close read that
+  learns the labels only happens when a hook subscribes to `close`, so
+  an unconfigured hook costs a commit nothing; a hook failure is
+  reported with the replay command and never fails the commit.
+- **`wyk doctor` pings the handoff hook** (would-you-kindly-2pwr.7). A
+  new `handoff hook` check passes quietly when none is configured,
+  fails without running anything when the command's program is missing
+  from PATH, not executable, or a directory, and otherwise sends a
+  `ping` event with a 5s cap (or the configured timeout if shorter) and
+  reports the round-trip time, or the script's own stderr on failure.
+- **Agents learn about the handoff hook before they hand off**
+  (would-you-kindly-2pwr.8). `wyk conventions` ends with a handoff-hook
+  section that says whether one is configured on this machine and what
+  a handoff then causes (external task, `external_ref` recorded, URL
+  noted, replay command); `-json` carries the same under `handoff_hook`.
+  `wyk inbox -json` and `wyk export` keep each issue's `external_ref`
+  through `-slim`. The plugin's SessionStart hook prints one line when
+  a hook is active, and the `wyk-handoff` skill explains the hook, exit
+  3, and `-due`.
 
 ### Fixed
 

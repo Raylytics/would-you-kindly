@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/jimbottle/would-you-kindly/internal/hooks"
 )
 
 func TestConventions_BodyMentionsTheCanonicalLabels(t *testing.T) {
@@ -216,4 +218,61 @@ func TestConventions_RunJSONExits0(t *testing.T) {
 	if code := runConventions([]string{"-json"}); code != 0 {
 		t.Errorf("runConventions(-json) = %d, want 0", code)
 	}
+}
+
+// withHookConfig points the conventions command at a fixed hook config.
+func withHookConfig(t *testing.T, cfg hooks.Config) {
+	t.Helper()
+	prev := newHandoffHookDispatcher
+	newHandoffHookDispatcher = func() *hooks.Dispatcher { return &hooks.Dispatcher{Config: cfg} }
+	t.Cleanup(func() { newHandoffHookDispatcher = prev })
+}
+
+// The hook section tells an agent, before it hands off, whether the
+// handoff will also create a task elsewhere (would-you-kindly-2pwr.8).
+func TestConventions_HandoffHookSection(t *testing.T) {
+	t.Run("unconfigured", func(t *testing.T) {
+		withHookConfig(t, hooks.Config{})
+		text := conventionsText(hooks.Config{})
+		if !strings.Contains(text, "No handoff hook is configured") || !strings.Contains(text, "hooks.handoff.command") {
+			t.Errorf("text form should say no hook is configured and how to set one:\n%s", text)
+		}
+		c := conventionsStructured()
+		if c.HandoffHook.Configured || c.HandoffHook.Command != "" || c.HandoffHook.Events != nil {
+			t.Errorf("structured hook = %+v, want unconfigured", c.HandoffHook)
+		}
+		if c.HandoffHook.ReplayCommand == "" || c.HandoffHook.DocsURL == "" || c.HandoffHook.FailureExitCode != exitHookFailed {
+			t.Errorf("structured hook contract fields missing: %+v", c.HandoffHook)
+		}
+	})
+	t.Run("configured", func(t *testing.T) {
+		cfg := hooks.Config{Command: "node ~/bin/basicdo-hook.mjs", Events: []hooks.Event{hooks.EventHandoff, hooks.EventClose}}
+		withHookConfig(t, cfg)
+		text := conventionsText(cfg)
+		for _, want := range []string{"IS configured", "node ~/bin/basicdo-hook.mjs", "events: handoff, close", "external_ref", "Exit 3", "wyk hook dispatch"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("text form missing %q:\n%s", want, text)
+			}
+		}
+		c := conventionsStructured()
+		if !c.HandoffHook.Configured || c.HandoffHook.Command != cfg.Command {
+			t.Errorf("structured hook = %+v, want configured with the command", c.HandoffHook)
+		}
+		if got := strings.Join(c.HandoffHook.Events, ","); got != "handoff,close" {
+			t.Errorf("events = %q, want handoff,close", got)
+		}
+		b, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), `"handoff_hook"`) || !strings.Contains(string(b), `"configured":true`) {
+			t.Errorf("JSON missing the handoff_hook key: %s", b)
+		}
+	})
+	t.Run("all events when unfiltered, ping excluded", func(t *testing.T) {
+		h := handoffHookStructured(hooks.Config{Command: "x"})
+		if got := strings.Join(h.Events, ","); got != "handoff,bounce,close" {
+			t.Errorf("events = %q, want handoff,bounce,close", got)
+		}
+	})
 }

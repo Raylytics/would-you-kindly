@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jimbottle/would-you-kindly/internal/beads"
+	"github.com/jimbottle/would-you-kindly/internal/hooks"
 	"github.com/jimbottle/would-you-kindly/internal/lease"
 	"github.com/jimbottle/would-you-kindly/internal/registry"
 	"github.com/jimbottle/would-you-kindly/internal/skills"
@@ -1143,5 +1144,100 @@ func TestCheckAgentIdentity(t *testing.T) {
 	t.Setenv(sessionEnvVar, "88ef57f5-1924")
 	if c := checkAgentIdentity(repos); c.status != statusPass || !strings.Contains(c.detail, "claude-88ef57f5") {
 		t.Fatalf("session default: %+v", c)
+	}
+}
+
+func TestCheckHandoffHook(t *testing.T) {
+	t.Run("unconfigured passes without running", func(t *testing.T) {
+		r := &stubHookRunner{}
+		c := checkHandoffHook(&hooks.Dispatcher{Runner: r.run})
+		if c.status != statusPass || !strings.Contains(c.detail, "none configured") {
+			t.Errorf("got %s %q, want PASS 'none configured'", c.status, c.detail)
+		}
+		if r.called {
+			t.Error("ran a hook that is not configured")
+		}
+	})
+	t.Run("nil dispatcher passes", func(t *testing.T) {
+		if c := checkHandoffHook(nil); c.status != statusPass {
+			t.Errorf("got %s, want PASS", c.status)
+		}
+	})
+	t.Run("missing path fails without running", func(t *testing.T) {
+		r := &stubHookRunner{}
+		d := &hooks.Dispatcher{Config: hooks.Config{Command: "/no/such/dir/hook.sh --flag"}, Runner: r.run}
+		c := checkHandoffHook(d)
+		if c.status != statusFail || !strings.Contains(c.detail, "does not exist") {
+			t.Errorf("got %s %q, want FAIL 'does not exist'", c.status, c.detail)
+		}
+		if r.called {
+			t.Error("pinged a command whose program is missing")
+		}
+	})
+	t.Run("unknown program on PATH fails without running", func(t *testing.T) {
+		r := &stubHookRunner{}
+		d := &hooks.Dispatcher{Config: hooks.Config{Command: "wyk-doctor-test-no-such-program-xyz ping"}, Runner: r.run}
+		c := checkHandoffHook(d)
+		if c.status != statusFail || !strings.Contains(c.detail, "not on PATH") {
+			t.Errorf("got %s %q, want FAIL 'not on PATH'", c.status, c.detail)
+		}
+		if r.called {
+			t.Error("pinged a program that is not on PATH")
+		}
+	})
+	t.Run("not executable fails", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "hook.sh")
+		if err := os.WriteFile(f, []byte("#!/bin/sh\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c := checkHandoffHook(&hooks.Dispatcher{Config: hooks.Config{Command: f}, Runner: (&stubHookRunner{}).run})
+		if c.status != statusFail || !strings.Contains(c.detail, "not executable") {
+			t.Errorf("got %s %q, want FAIL 'not executable'", c.status, c.detail)
+		}
+	})
+	t.Run("answers ping passes with a ping payload", func(t *testing.T) {
+		r := &stubHookRunner{}
+		d := &hooks.Dispatcher{Config: hooks.Config{Command: "FOO=1 sh -c true", Events: []hooks.Event{hooks.EventHandoff}}, Runner: r.run}
+		c := checkHandoffHook(d)
+		if c.status != statusPass {
+			t.Fatalf("got %s %q, want PASS", c.status, c.detail)
+		}
+		if !r.called || r.payload.Event != hooks.EventPing || r.payload.Issue != nil {
+			t.Errorf("payload = %+v (called=%v), want a ping with no issue", r.payload, r.called)
+		}
+		if !strings.Contains(c.detail, "events: handoff") {
+			t.Errorf("detail %q should name the subscribed events", c.detail)
+		}
+	})
+	t.Run("script failure quotes its stderr", func(t *testing.T) {
+		r := &stubHookRunner{err: &hooks.ExecError{ExitCode: 1, Stderr: "no API key in env"}}
+		c := checkHandoffHook(&hooks.Dispatcher{Config: hooks.Config{Command: "sh -c false"}, Runner: r.run})
+		if c.status != statusFail || !strings.Contains(c.detail, "no API key in env") {
+			t.Errorf("got %s %q, want FAIL quoting the script's stderr", c.status, c.detail)
+		}
+	})
+	t.Run("timeout names the config key", func(t *testing.T) {
+		r := &stubHookRunner{err: hooks.ErrTimedOut}
+		c := checkHandoffHook(&hooks.Dispatcher{Config: hooks.Config{Command: "sh -c sleep"}, Runner: r.run})
+		if c.status != statusFail || !strings.Contains(c.detail, "timeout_seconds") {
+			t.Errorf("got %s %q, want FAIL mentioning timeout_seconds", c.status, c.detail)
+		}
+	})
+}
+
+func TestHookProgram(t *testing.T) {
+	cases := map[string]string{
+		"node ~/bin/hook.mjs":         "node",
+		"FOO=1 BAR=x node hook.mjs":   "node",
+		"  /usr/local/bin/hook --v ":  "/usr/local/bin/hook",
+		`"/path with space/hook" --v`: "/path",
+		"FOO=1":                       "",
+		"":                            "",
+		"1X=2 prog":                   "1X=2",
+	}
+	for in, want := range cases {
+		if got := hookProgram(in); got != want {
+			t.Errorf("hookProgram(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

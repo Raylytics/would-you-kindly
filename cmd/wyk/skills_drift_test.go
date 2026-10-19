@@ -36,8 +36,13 @@ var wykCmdRef = regexp.MustCompile(`\bwyk ([a-z][a-z-]*)`)
 // e.g. a renamed/removed command would keep being advertised to agents
 // until someone noticed at runtime.
 func TestSkills_ReferenceOnlyRealWykSubcommands(t *testing.T) {
-	valid := make(map[string]bool, len(wykSubcommands))
-	for _, c := range wykSubcommands {
+	// The dispatch map is the shipped set. It is a superset of the
+	// completion list: `hook` is left out of completion on purpose (its
+	// post-commit mode is git's to call), yet `wyk hook dispatch` is the
+	// documented replay command an agent runs by hand, so a skill may
+	// name it.
+	valid := make(map[string]bool, len(subcommandHandlers))
+	for c := range subcommandHandlers {
 		valid[c] = true
 	}
 	all, err := skills.All()
@@ -54,7 +59,7 @@ func TestSkills_ReferenceOnlyRealWykSubcommands(t *testing.T) {
 			cmd := m[1]
 			if !valid[cmd] {
 				t.Errorf("skill %q references `wyk %s`, which is not a shipped wyk subcommand "+
-					"(see wykSubcommands in completion.go) — fix the skill or add the command", s.Name, cmd)
+					"(see subcommandHandlers in main.go) — fix the skill or add the command", s.Name, cmd)
 			}
 		}
 	}

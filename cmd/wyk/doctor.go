@@ -19,6 +19,7 @@ import (
 
 	"github.com/jimbottle/would-you-kindly/internal/beads"
 	"github.com/jimbottle/would-you-kindly/internal/filters"
+	"github.com/jimbottle/would-you-kindly/internal/hooks"
 	"github.com/jimbottle/would-you-kindly/internal/lease"
 	"github.com/jimbottle/would-you-kindly/internal/registry"
 	"github.com/jimbottle/would-you-kindly/internal/sanitize"
@@ -382,6 +383,7 @@ func collectDoctorChecks() []check {
 	checks = append(checks, checkActor())
 	checks = append(checks, checkXDGPaths()...)
 	checks = append(checks, checkWykConfig())
+	checks = append(checks, checkHandoffHook(newHandoffHookDispatcher()))
 	regChecks, repos := checkRegistry()
 	checks = append(checks, regChecks...)
 	if c, ok := checkCwdRegistered(); ok {
@@ -420,6 +422,126 @@ func collectDoctorChecks() []check {
 		})
 	}
 	return checks
+}
+
+// doctorHookPingTimeout bounds the ping `wyk doctor` sends the handoff
+// hook. Shorter than the hook's own default: a doctor run should not
+// stall on a script that cannot connect, and ping is meant to be cheap
+// (no issue, no side effects). A configured timeout smaller than this
+// wins, so the check never allows more than a real event would.
+const doctorHookPingTimeout = 5 * time.Second
+
+// checkHandoffHook reports on hooks.handoff (would-you-kindly-2pwr.7):
+// PASS when none is configured (handoffs stay in bd only); FAIL when
+// the command's program cannot be found or is not executable, said
+// without running anything; FAIL with the script's own stderr when it
+// does not answer a ping; PASS with the round-trip time when it does.
+// The dispatcher is injected so tests supply a recording runner.
+func checkHandoffHook(d *hooks.Dispatcher) check {
+	const name = "handoff hook"
+	if d == nil || !d.Config.Enabled() {
+		return check{name: name, status: statusPass,
+			detail: "none configured — handoffs stay in bd only (`wyk config set hooks.handoff.command …` mirrors them into another task manager; see docs/HOOKS.md)"}
+	}
+	cmd := sanitize.Inline(d.Config.Command)
+	events := "all events"
+	if len(d.Config.Events) > 0 {
+		names := make([]string, len(d.Config.Events))
+		for i, e := range d.Config.Events {
+			names[i] = string(e)
+		}
+		events = "events: " + strings.Join(names, ", ")
+	}
+	prog := hookProgram(d.Config.Command)
+	if prog == "" {
+		return check{name: name, status: statusFail,
+			detail: cmd + " — no program to run (only variable assignments); fix with `wyk config set hooks.handoff.command …`"}
+	}
+	if err := hookProgramResolves(prog); err != nil {
+		return check{name: name, status: statusFail,
+			detail: fmt.Sprintf("%s — %v; fix with `wyk config set hooks.handoff.command …` (the first word must be on PATH or an absolute path)", cmd, err)}
+	}
+
+	timeout := doctorHookPingTimeout
+	if t := d.Config.EffectiveTimeout(); t < timeout {
+		timeout = t
+	}
+	probe := &hooks.Dispatcher{
+		Config: hooks.Config{Command: d.Config.Command, Timeout: timeout, Events: d.Config.Events},
+		Runner: d.Runner,
+	}
+	ctx := context.Background()
+	start := time.Now()
+	_, _, err := probe.Dispatch(ctx, hooks.Payload{
+		Event: hooks.EventPing, Actor: hooks.ActorCLI, WykVersion: versionString(), Repo: hookRepo(ctx, nil, ""),
+	})
+	if err != nil {
+		detail := fmt.Sprintf("%s did not answer ping: %v", cmd, sanitize.Inline(err.Error()))
+		if errors.Is(err, hooks.ErrTimedOut) {
+			detail += fmt.Sprintf(" (waited %s; if the script is only slow, raise `wyk config set hooks.handoff.timeout_seconds <n>`)", timeout)
+		}
+		return check{name: name, status: statusFail, detail: detail}
+	}
+	return check{name: name, status: statusPass,
+		detail: fmt.Sprintf("%s answered ping in %s (%s)", cmd, time.Since(start).Round(time.Millisecond), events)}
+}
+
+// hookProgram returns the program `sh -c <command>` will exec: the
+// first word that is not a leading VAR=value assignment, with any
+// surrounding quotes dropped. Empty when there is none.
+func hookProgram(command string) string {
+	for _, f := range strings.Fields(command) {
+		if isEnvAssignment(f) {
+			continue
+		}
+		return strings.Trim(f, `"'`)
+	}
+	return ""
+}
+
+// isEnvAssignment reports whether a shell word is NAME=value.
+func isEnvAssignment(word string) bool {
+	name, _, ok := strings.Cut(word, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for i, c := range name {
+		switch {
+		case c == '_', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9' && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// hookProgramResolves checks that prog can be executed: a path (with
+// `~` expanded) must exist and carry an exec bit; a bare name must be
+// on PATH. Mirrors what sh will find, so a FAIL here is the same error
+// the script would hit at handoff time, reported before any handoff.
+func hookProgramResolves(prog string) error {
+	if strings.HasPrefix(prog, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			prog = filepath.Join(home, prog[2:])
+		}
+	}
+	if !strings.Contains(prog, "/") {
+		if _, err := exec.LookPath(prog); err != nil {
+			return fmt.Errorf("%q is not on PATH", prog)
+		}
+		return nil
+	}
+	fi, err := os.Stat(prog)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%q does not exist", prog)
+	case fi.IsDir():
+		return fmt.Errorf("%q is a directory", prog)
+	case fi.Mode()&0o111 == 0:
+		return fmt.Errorf("%q is not executable (chmod +x)", prog)
+	}
+	return nil
 }
 
 // checkSkills reports whether wyk's agent skills are installed and

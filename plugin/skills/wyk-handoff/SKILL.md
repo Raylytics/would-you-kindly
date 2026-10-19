@@ -57,6 +57,25 @@ positional arg):
 the issue description to your runbook. Prefer it over hand-rolling
 labels via `bd create`.
 
+## When a handoff hook is configured
+
+Some machines mirror handoffs into another task manager through a
+handoff hook (`wyk conventions` ends with a section saying whether this
+one does; `wyk conventions -json` has it under `handoff_hook`). When a
+hook is on, `wyk handoff` also creates a task there, prints
+`hook (handoff): <url>` as its last line, and stores the ref in the
+issue's `external_ref` field (visible in `wyk inbox -json`). `-dry-run`
+says `would run handoff hook: …` first, so you know before writing.
+
+- **Exit 3** means the bd handoff LANDED but the mirror failed. Do not
+  retry the handoff. Fix the cause (the script's stderr is quoted),
+  then run the replay command it printed:
+  `wyk hook dispatch handoff <id>`.
+- With `-create`, add `-due <date>` (`+1d`, `tomorrow`, `2026-01-15`)
+  when the human has a real deadline; the mirror can show it.
+- A raw `bd label add <id> human` never reaches the hook. Use
+  `wyk handoff`, or replay afterwards with `wyk hook dispatch`.
+
 ## Write a complete runbook
 
 Three sections, in this order:

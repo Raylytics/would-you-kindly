@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/jimbottle/would-you-kindly/internal/hooks"
 	"github.com/jimbottle/would-you-kindly/internal/lease"
 )
 
@@ -256,6 +258,69 @@ Example: file a human QUESTION
 Full contract: https://github.com/jimbottle/would-you-kindly/blob/main/docs/CONTRACT.md
 `
 
+// conventionsText is what `wyk conventions` prints: the static body
+// plus the handoff-hook section, which depends on this machine's
+// config (would-you-kindly-2pwr.8). An agent must learn BEFORE it runs
+// `wyk handoff` that the handoff will also create a task elsewhere.
+func conventionsText(cfg hooks.Config) string {
+	return conventionsBody + handoffHookProse(cfg)
+}
+
+// handoffHookDocsURL is where the payload contract and adapter guide live.
+const handoffHookDocsURL = "https://github.com/jimbottle/would-you-kindly/blob/main/docs/HOOKS.md"
+
+// handoffHookReplayCommand is the one-liner that re-sends an event.
+const handoffHookReplayCommand = "wyk hook dispatch <handoff|bounce|close> <id>"
+
+// handoffHookProse renders the hook section of the text form.
+func handoffHookProse(cfg hooks.Config) string {
+	var b strings.Builder
+	b.WriteString(`
+Handoff hook (mirroring human tasks into another task manager)
+--------------------------------------------------------------
+
+`)
+	if !cfg.Enabled() {
+		b.WriteString(`No handoff hook is configured on this machine: a handoff lives in bd
+only. 'wyk config set hooks.handoff.command <cmd>' (or $` + handoffHookEnvVar + ` for
+one run) mirrors human tasks into another task manager; see
+` + handoffHookDocsURL + `
+`)
+		return b.String()
+	}
+	events := "handoff, bounce, close"
+	if len(cfg.Events) > 0 {
+		names := make([]string, len(cfg.Events))
+		for i, e := range cfg.Events {
+			names[i] = string(e)
+		}
+		events = strings.Join(names, ", ")
+	}
+	fmt.Fprintf(&b, `A handoff hook IS configured on this machine:
+
+    %s    (events: %s)
+
+So 'wyk handoff' does more than label the bd issue. After every bd
+write it runs that command, which creates (or updates) a task in the
+external manager; the ref the script answers is stored in the issue's
+external_ref field (carried by 'wyk inbox -json' and 'wyk export') and
+the URL is added as a bd note. Closing or bouncing the issue through
+wyk (TUI, post-commit auto-close) completes the mirror too; a raw 'bd
+label' / 'bd close' does not.
+
+  - 'wyk handoff -dry-run' prints "would run handoff hook: …" first.
+  - Exit 3 from 'wyk handoff' means the bd handoff LANDED but the
+    mirror failed: do not retry the handoff. Fix the cause, then
+    replay with the printed command:
+        %s
+  - 'wyk doctor' pings the hook; 'wyk hook dispatch ping' does too.
+  - '-due <date>' with '-create' sets a deadline the mirror can show.
+
+Payload contract and adapter guide: %s
+`, cfg.Command, events, handoffHookReplayCommand, handoffHookDocsURL)
+	return b.String()
+}
+
 // conventionsJSON is the structured form for programmatic ingestion.
 // Agents pipe `wyk conventions -json` into their tooling and can
 // branch on the schema without parsing prose. Schema is intentionally
@@ -298,6 +363,56 @@ type conventionsJSON struct {
 	// carries either middle heading and rejects one with neither.
 	QuestionSections []runbookSection `json:"question_sections"`
 	ContractURL      string           `json:"contract_url"`
+	// HandoffHook says whether this machine mirrors handoffs into
+	// another task manager and what a handoff then causes
+	// (would-you-kindly-2pwr.8).
+	HandoffHook handoffHookConventions `json:"handoff_hook"`
+}
+
+// handoffHookConventions is the structured form of the handoff hook
+// (docs/HOOKS.md). Configured is per machine; the rest is the contract.
+type handoffHookConventions struct {
+	Configured bool   `json:"configured"`
+	Command    string `json:"command,omitempty"`
+	// Events the configured hook receives; nil when none is configured.
+	Events    []string `json:"events,omitempty"`
+	ConfigKey string   `json:"config_key"`
+	EnvVar    string   `json:"env_var"`
+	// Effect is what a `wyk handoff` does beyond bd when a hook is on.
+	Effect           string `json:"effect"`
+	ExternalRefField string `json:"external_ref_field"`
+	FailureExitCode  int    `json:"failure_exit_code"`
+	ReplayCommand    string `json:"replay_command"`
+	DocsURL          string `json:"docs_url"`
+}
+
+// handoffHookStructured fills the JSON form from the resolved config.
+func handoffHookStructured(cfg hooks.Config) handoffHookConventions {
+	h := handoffHookConventions{
+		Configured:       cfg.Enabled(),
+		ConfigKey:        "hooks.handoff.command",
+		EnvVar:           handoffHookEnvVar,
+		Effect:           "after every bd write, the command receives the event on stdin and creates or updates the external task; the ref it answers is stored in external_ref and sent back on later events; the URL is noted on the issue",
+		ExternalRefField: "external_ref",
+		FailureExitCode:  exitHookFailed,
+		ReplayCommand:    handoffHookReplayCommand,
+		DocsURL:          handoffHookDocsURL,
+	}
+	if !h.Configured {
+		return h
+	}
+	h.Command = cfg.Command
+	events := cfg.Events
+	if len(events) == 0 {
+		events = hooks.AllEvents
+	}
+	for _, e := range events {
+		if e == hooks.EventPing {
+			continue
+		}
+		h.Events = append(h.Events, string(e))
+	}
+	return h
 }
 
 // leaseConventions is the structured form of the v4 lease rules.
@@ -331,6 +446,7 @@ type runbookSection struct {
 
 func conventionsStructured() conventionsJSON {
 	var c conventionsJSON
+	c.HandoffHook = handoffHookStructured(newHandoffHookDispatcher().Config)
 	c.Labels.Human = "task is for a human to act on; surfaced in TUI 'h' view and 'wyk --probe'"
 	c.Labels.SrcAgent = "filed by an agent (provenance); persists across the back-and-forth"
 	c.Labels.SrcHuman = "filed by a human (provenance); applied by the TUI's N quick-add and wyk handoff -create when stdin is absent"
@@ -414,6 +530,6 @@ func runConventions(args []string) int {
 		}
 		return 0
 	}
-	fmt.Print(conventionsBody)
+	fmt.Print(conventionsText(newHandoffHookDispatcher().Config))
 	return 0
 }
