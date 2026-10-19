@@ -54,6 +54,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-issue create), on both the success and the partial-stamp path;
   the label stamp still happens and a stamp failure still goes to stderr
   with exit 1.
+- **The `bd-create-guard` hook no longer blocks heredoc bodies that
+  mention `bd create`** (would-you-kindly-vxfz, would-you-kindly-2sgh).
+  A commit message fed through `git commit -F - <<EOF`, a script fed to
+  `python3 - <<'EOF'`, or a doc edit whose body says `` `bd create` `` in
+  backticks all tripped the PreToolUse guard, because it only redacted
+  quoted spans and a newline or backtick inside the heredoc body looked
+  like a command position. Heredoc bodies (`<<TAG`, `<<-TAG`, `<<'TAG'`,
+  `<<"TAG"`, several per line) are now redacted like quoted strings; a
+  real `bd create` before, after, or on the same line as a heredoc still
+  blocks, `<<<` here-strings are left alone, and an unterminated heredoc
+  fails open. The bypass is also honoured when written into the command
+  itself (`WYK_ALLOW_BD_CREATE=1 bd create …` or `export
+  WYK_ALLOW_BD_CREATE=1; …`), since an agent cannot set the hook's own
+  environment; the block message now says so.
 
 ## [0.8.0] — 2026-10-12
 

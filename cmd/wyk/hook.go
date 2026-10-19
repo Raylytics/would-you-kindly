@@ -106,19 +106,23 @@ var bdCreateRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+create(?:\\s|$|[;
 // quote redacts to end-of-input — fail open, never block on malformed
 // input, consistent with the rest of the guard.
 //
-// Known fail-open gap: command substitution ($(…) or a backtick span)
-// nested INSIDE double quotes still executes in the shell, but it
-// collapses to the sentinel with the rest of the span — so
-// `echo "$(bd create)"` is intentionally NOT caught. (The same form at
-// top level, e.g. `id=$(bd create)`, IS caught, since the `(`/backtick
-// then anchors bdCreateRE directly.) Scanning into double-quoted
-// substitutions would mean parsing nested shell, which is disproportionate
-// for a fail-open nudge that no agent's own `bd create` would ever take
-// this shape; see the "command substitution inside double quotes" cases in
-// TestBDCreateGuard that pin this as deliberate.
+// Heredoc bodies are redacted the same way (would-you-kindly-vxfz,
+// would-you-kindly-2sgh): `<<TAG`, `<<-TAG`, `<<'TAG'` and `<<"TAG"`
+// at top level register TAG, and at the next top-level newline each
+// registered body — every line up to the one that equals TAG (leading
+// tabs stripped for `<<-`) — collapses to the sentinel. A heredoc body
+// is data (a commit message fed through `git commit -F -`, a script fed
+// to `python3 -`, a doc edit mentioning the command in backticks), not
+// a command position, and a backtick inside it used to anchor the
+// regex as a command substitution. Several heredocs on one line are
+// consumed in order; `<<<` (a here-string) is a redirect of a word and
+// registers nothing; an unterminated heredoc redacts to end-of-input.
 func redactQuotes(s string) string {
 	var b strings.Builder
 	r := []rune(s)
+	// Heredoc tags whose bodies start at the next top-level newline,
+	// in the order their `<<` operators appeared.
+	var pending []heredocTag
 	for i := 0; i < len(r); i++ {
 		switch r[i] {
 		case '\\':
@@ -144,12 +148,137 @@ func redactQuotes(s string) string {
 					i++
 				}
 			}
+		case '<':
+			// `<<TAG` opens a heredoc; `<<<` is a here-string (a plain
+			// redirect of one word) and `<` alone is a file redirect.
+			if i+2 < len(r) && r[i+1] == '<' && r[i+2] == '<' {
+				b.WriteString("<<<")
+				i += 2
+				continue
+			}
+			if i+1 < len(r) && r[i+1] == '<' {
+				tag, next := parseHeredocTag(r, i+2)
+				if tag.name != "" {
+					pending = append(pending, tag)
+					b.WriteString("<<")
+					if tag.stripTabs {
+						b.WriteRune('-')
+					}
+					b.WriteRune('\x00') // the tag word itself is not a command
+					i = next - 1
+					continue
+				}
+			}
+			b.WriteRune(r[i])
+		case '\n':
+			b.WriteRune(r[i])
+			if len(pending) == 0 {
+				continue
+			}
+			// The bodies begin here, one after another, each ending at
+			// its own terminator line. Everything between is data.
+			i++
+			for _, tag := range pending {
+				i = skipHeredocBody(r, i, tag)
+				b.WriteRune('\x00')
+				b.WriteRune('\n')
+			}
+			pending = nil
+			i-- // the loop increment lands on the rune after the last body
 		default:
 			b.WriteRune(r[i])
 		}
 	}
 	return b.String()
 }
+
+// heredocTag is one registered `<<` operator: the terminator word and
+// whether `<<-` was used (which lets the terminator carry leading tabs).
+type heredocTag struct {
+	name      string
+	stripTabs bool
+}
+
+// parseHeredocTag reads the tag that follows a `<<` at r[i:]: an
+// optional `-`, optional blanks, then a bare word, a single-quoted
+// word, or a double-quoted word. It returns the tag and the index just
+// past it; an empty name means "not a heredoc after all" (e.g. `<<`
+// followed by nothing or by an operator), in which case the caller
+// leaves the text alone.
+func parseHeredocTag(r []rune, i int) (heredocTag, int) {
+	var tag heredocTag
+	if i < len(r) && r[i] == '-' {
+		tag.stripTabs = true
+		i++
+	}
+	for i < len(r) && (r[i] == ' ' || r[i] == '\t') {
+		i++
+	}
+	if i >= len(r) {
+		return heredocTag{}, i
+	}
+	var name []rune
+	switch r[i] {
+	case '\'', '"':
+		q := r[i]
+		for i++; i < len(r) && r[i] != q; i++ {
+			name = append(name, r[i])
+		}
+		if i < len(r) {
+			i++ // closing quote
+		}
+	default:
+		for i < len(r) && isHeredocWordRune(r[i]) {
+			name = append(name, r[i])
+			i++
+		}
+	}
+	tag.name = string(name)
+	return tag, i
+}
+
+// isHeredocWordRune bounds an unquoted heredoc tag: letters, digits and
+// `_` cover every tag seen in practice (EOF, PYEOF, __END__), and
+// stopping at anything else keeps `<<EOF;` or `<<EOF)` correct.
+func isHeredocWordRune(c rune) bool {
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// skipHeredocBody returns the index just past the terminator line of
+// the heredoc body that starts at r[i] (the first rune of the first
+// body line). The terminator is a line whose content equals tag.name
+// exactly, after leading tabs are stripped when `<<-` was used. An
+// unterminated body runs to end-of-input.
+func skipHeredocBody(r []rune, i int, tag heredocTag) int {
+	for i < len(r) {
+		end := i
+		for end < len(r) && r[end] != '\n' {
+			end++
+		}
+		line := r[i:end]
+		if tag.stripTabs {
+			for len(line) > 0 && line[0] == '\t' {
+				line = line[1:]
+			}
+		}
+		next := end
+		if next < len(r) {
+			next++ // consume the newline
+		}
+		if string(line) == tag.name {
+			return next
+		}
+		i = next
+	}
+	return i
+}
+
+// allowBDCreateInlineRE matches `WYK_ALLOW_BD_CREATE=<value>` written
+// into the command itself, as a prefix assignment or an export. The
+// hook runs in Claude Code's environment, not the agent's shell, so a
+// bypass set inline (the only way an agent can set it) must be read
+// from the command text to count (would-you-kindly-2sgh).
+var allowBDCreateInlineRE = regexp.MustCompile(`(?:^|[\s;&|(])(?:export\s+)?WYK_ALLOW_BD_CREATE=\S`)
 
 // runHookBDCreateGuard is the Claude Code PreToolUse hook `wyk init`
 // installs. It reads the tool-call JSON from stdin and, when an agent is
@@ -161,7 +290,10 @@ func redactQuotes(s string) string {
 //
 // `wyk create` itself shells out to `bd create` as a child process (not a
 // Bash tool call), so the guard never sees it — no recursion. Set
-// WYK_ALLOW_BD_CREATE=1 to bypass for a genuinely-needed raw bd create.
+// WYK_ALLOW_BD_CREATE=1 to bypass for a genuinely-needed raw bd create —
+// in the hook's environment, or inline in the command text
+// (`WYK_ALLOW_BD_CREATE=1 bd create …`), since an agent can only reach
+// the latter.
 // Anything it can't parse or doesn't recognise is allowed (exit 0): a
 // guard that fails closed would wedge the agent on every Bash call.
 func runHookBDCreateGuard(stdin io.Reader) int {
@@ -177,7 +309,11 @@ func runHookBDCreateGuard(stdin io.Reader) int {
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		return 0
 	}
-	if in.ToolName != "Bash" || !bdCreateRE.MatchString(redactQuotes(in.ToolInput.Command)) {
+	if in.ToolName != "Bash" {
+		return 0
+	}
+	redacted := redactQuotes(in.ToolInput.Command)
+	if !bdCreateRE.MatchString(redacted) || allowBDCreateInlineRE.MatchString(redacted) {
 		return 0
 	}
 	fmt.Fprintln(os.Stderr,
@@ -185,7 +321,7 @@ func runHookBDCreateGuard(stdin io.Reader) int {
 			"`bd create` and also records the Claude session, so the issue shows up in "+
 			"the TUI's Session column (traceable back to this conversation). Re-run the "+
 			"command with `wyk create …`. "+
-			"(If you genuinely need raw bd create, set WYK_ALLOW_BD_CREATE=1.)")
+			"(If you genuinely need raw bd create, prefix the command with WYK_ALLOW_BD_CREATE=1.)")
 	return 2 // PreToolUse exit 2 blocks the tool call; stderr is shown to Claude.
 }
 

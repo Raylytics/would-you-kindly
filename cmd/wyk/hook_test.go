@@ -35,6 +35,20 @@ func TestBDCreateGuard(t *testing.T) {
 		// DO block.) Pinned so the trade-off is deliberate, not accidental.
 		{"$() bd create inside double quotes intentionally allowed", `{"tool_name":"Bash","tool_input":{"command":"echo \"$(bd create -t y)\""}}`, 0},
 		{"backtick bd create inside double quotes intentionally allowed", "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo \\\"`bd create -t y`\\\"\"}}", 0},
+		// Heredoc bodies are data, not command positions
+		// (would-you-kindly-vxfz, would-you-kindly-2sgh).
+		{"commit message via heredoc mentioning bd create allowed", `{"tool_name":"Bash","tool_input":{"command":"git commit -F - <<EOF\nfeat: file issues\n\nbd create -f files several issues\nEOF"}}`, 0},
+		{"quoted-tag heredoc with backtick bd create allowed", `{"tool_name":"Bash","tool_input":{"command":"python3 - <<'PYEOF'\ns = \"prefer ` + "`bd create`" + ` here\"\nPYEOF"}}`, 0},
+		{"double-quoted-tag heredoc allowed", `{"tool_name":"Bash","tool_input":{"command":"cat <<\"EOF\" > notes.md\nbd create --title x\nEOF"}}`, 0},
+		{"<<- heredoc with tab-indented terminator allowed", `{"tool_name":"Bash","tool_input":{"command":"cat <<-EOF\n\tbd create --title x\n\tEOF"}}`, 0},
+		{"two heredocs on one line both redacted", `{"tool_name":"Bash","tool_input":{"command":"diff <(cat <<A\nbd create\nA\n) <(cat <<B\nbd create\nB\n)"}}`, 0},
+		{"real bd create after a heredoc terminator still blocks", `{"tool_name":"Bash","tool_input":{"command":"cat <<EOF\nhello\nEOF\nbd create --title x"}}`, 2},
+		{"real bd create on the heredoc's own line still blocks", `{"tool_name":"Bash","tool_input":{"command":"cat <<EOF && bd create --title x\nbody\nEOF"}}`, 2},
+		{"unterminated heredoc fails open", `{"tool_name":"Bash","tool_input":{"command":"cat <<EOF\nbd create --title x\n"}}`, 0},
+		{"here-string is not a heredoc: following bd create blocks", `{"tool_name":"Bash","tool_input":{"command":"cat <<< hello\nbd create --title x"}}`, 2},
+		{"inline WYK_ALLOW_BD_CREATE=1 prefix allowed", `{"tool_name":"Bash","tool_input":{"command":"WYK_ALLOW_BD_CREATE=1 bd create --title x"}}`, 0},
+		{"inline export WYK_ALLOW_BD_CREATE=1 allowed", `{"tool_name":"Bash","tool_input":{"command":"export WYK_ALLOW_BD_CREATE=1; bd create --title x"}}`, 0},
+		{"WYK_ALLOW_BD_CREATE mentioned in a quoted string does not bypass", `{"tool_name":"Bash","tool_input":{"command":"echo \"WYK_ALLOW_BD_CREATE=1\"; bd create --title x"}}`, 2},
 		{"non-Bash tool allowed", `{"tool_name":"Edit","tool_input":{"command":"bd create x"}}`, 0},
 		{"malformed payload allowed", `not json`, 0},
 	}
@@ -44,6 +58,27 @@ func TestBDCreateGuard(t *testing.T) {
 				t.Errorf("guard(%q) = %d, want %d", c.payload, got, c.want)
 			}
 		})
+	}
+}
+
+// redactQuotes must leave the shape of the command intact outside the
+// redacted spans, so the separator/anchor logic in bdCreateRE still sees
+// real command positions.
+func TestRedactQuotes_Heredoc(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"cat <<EOF\nbody\nEOF\n", "cat <<\x00\n\x00\n"},
+		{"cat <<EOF\nbody\nEOF\nnext", "cat <<\x00\n\x00\nnext"},
+		{"cat <<-EOF\n\tbody\n\tEOF\nnext", "cat <<-\x00\n\x00\nnext"},
+		{"cat <<'E'\nbody\nE\n", "cat <<\x00\n\x00\n"},
+		{"cat <<<word\nnext", "cat <<<word\nnext"},
+		{"a <<X; b <<Y\nx\nX\ny\nY\nz", "a <<\x00; b <<\x00\n\x00\n\x00\nz"},
+		{"cat <<EOF\nnever ends", "cat <<\x00\n\x00\n"},
+		{"x << ", "x << "},
+	}
+	for _, c := range cases {
+		if got := redactQuotes(c.in); got != c.want {
+			t.Errorf("redactQuotes(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 
