@@ -107,7 +107,7 @@ Look at `git log --oneline` for the style. The short form:
   Closes: would-you-kindly-ma5.4
   ```
 
-  See [README's auto-close section](README.md#auto-closing-issues-on-commit-wyk-init)
+  See [the operator reference's auto-close section](docs/OPERATOR.md#auto-closing-issues-on-commit-wyk-init)
   for the full rules (multiple IDs need separate trailer lines; explanatory
   text on the trailer line disqualifies it).
 

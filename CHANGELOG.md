@@ -56,6 +56,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-repo mode the row's workspace is resolved from the registry.
   This closes the generic handoff hook epic (would-you-kindly-2pwr).
 
+### Changed
+
+- **README is a landing page again; the operator reference moved to
+  `docs/OPERATOR.md`** (would-you-kindly-8m5f). At 824 lines the README
+  buried the pitch under the manual. It now reads Why → this repo is the
+  demo → the 60-second demo → install → the loop (agent side, human
+  side) → the dozen keys you use first → where everything else is, in
+  about 230 lines. Every moved section is verbatim in
+  [`docs/OPERATOR.md`](docs/OPERATOR.md) (registry, `--probe`, doctor,
+  stats, conventions, the hook, inbox and leases, the Stop-hook nudge,
+  `wyk init` and hook chaining, every key, theming, other subcommands, a
+  day in the life, screenshots, status) and the Security Model is now a
+  section of `SECURITY.md`; links into the old README sections were
+  repointed.
+
 ### Fixed
 
 - **Preset switches paint on the same frame instead of leaving the
