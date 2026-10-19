@@ -27,3 +27,20 @@ func TestIsAgentOwned(t *testing.T) {
 		}
 	}
 }
+
+func TestBlockingDependencies(t *testing.T) {
+	i := Issue{Dependencies: []Dependency{
+		{DependsOnID: "a", Type: "blocks"},
+		{DependsOnID: "b", Type: "parent-child"},
+		{DependsOnID: "c", Type: ""},
+		{DependsOnID: "", Type: "blocks"},
+		{DependsOnID: "d", Type: "related"},
+	}}
+	got := i.BlockingDependencies()
+	if len(got) != 2 || got[0] != "a" || got[1] != "c" {
+		t.Errorf("BlockingDependencies = %v, want [a c]", got)
+	}
+	if got := (Issue{}).BlockingDependencies(); got != nil {
+		t.Errorf("no edges should yield nil, got %v", got)
+	}
+}

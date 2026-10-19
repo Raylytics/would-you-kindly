@@ -65,6 +65,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before. `beads.Issue` now parses `acceptance_criteria`, `design`,
   `parent` and `close_reason`; `-json` outputs carry them when set, and
   `-slim` drops the two bodies with the description and notes.
+- **The `blocked` preset includes dependency-blocked issues**
+  (would-you-kindly-p00h.3). It used to query `status=blocked`, which
+  misses what `bd blocked` reports: an open issue with a `blocks`
+  dependency on another open issue stays `open` in bd. The preset now
+  lists the workspace and applies bd's rule (status `blocked`, or an
+  open `blocks` edge to a non-closed issue; parent-child and other edge
+  types don't block), the instant Tab switch derives the same set from
+  the last `all` fetch, and the status bar reads `N by status, M by
+  open deps`. `beads.Issue` gains `BlockingDependencies()`.
 
 ### Changed
 

@@ -99,7 +99,12 @@ func QueryWithClosed(p Preset, me string, includeClosed bool) string {
 		}
 		return `label=human AND status!=closed`
 	case PresetBlocked:
-		// status=blocked already excludes closed by construction.
+		// status=blocked already excludes closed by construction. This
+		// is the bd-query APPROXIMATION of the preset: the TUI's Source
+		// does not use it (it lists and applies bd's own blocked rule,
+		// which also catches open issues with an open `blocks`
+		// dependency); it remains for callers that can only run a
+		// query.
 		return `status=blocked`
 	case PresetReview:
 		if includeClosed {

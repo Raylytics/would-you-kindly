@@ -1477,6 +1477,18 @@ func (m Model) renderStatsLine() string {
 		}
 	}
 	var parts []string
+	if m.preset == filter.PresetBlocked && len(m.all) > 0 {
+		// The view is the union of two populations that look alike in
+		// the Status column; name both so an `open` row here is read
+		// as "waiting on a dependency", not as a bug in the filter.
+		byStatus := 0
+		for _, i := range m.all {
+			if i.Status == "blocked" {
+				byStatus++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%d by status, %d by open deps", byStatus, len(m.all)-byStatus))
+	}
 	if human > 0 {
 		parts = append(parts, fmt.Sprintf("%d human", human))
 	}

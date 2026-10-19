@@ -32,7 +32,8 @@ func (s titleSource) Len() int            { return len(s) }
 // only for the presets that are plain field predicates:
 //
 //	human   -> carries the human label, non-closed
-//	blocked -> status == blocked
+//	blocked -> status == blocked, or a `blocks` edge to a non-closed
+//	           row of the snapshot (isBlockedRow — the live fetch's rule)
 //	mine    -> assignee == me, non-closed (or just non-closed when
 //	           me is empty, matching filter.QueryWithClosed's
 //	           degradation)
@@ -53,7 +54,8 @@ func issuesMatchingPreset(snapshot []beads.Issue, have, want filter.Preset, me s
 	case filter.PresetHuman:
 		keep = func(i beads.Issue) bool { return i.IsHuman() && i.Status != "closed" }
 	case filter.PresetBlocked:
-		keep = func(i beads.Issue) bool { return i.Status == "blocked" }
+		open := openIDSet(snapshot)
+		keep = func(i beads.Issue) bool { return isBlockedRow(i, open) }
 	case filter.PresetReview:
 		keep = func(i beads.Issue) bool { return i.HasLabel(filter.ReviewLabel) && i.Status != "closed" }
 	case filter.PresetMine:

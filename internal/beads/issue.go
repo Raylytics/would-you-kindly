@@ -129,6 +129,22 @@ func (i Issue) IsHuman() bool {
 	return i.HasLabel("human")
 }
 
+// BlockingDependencies returns the IDs this issue depends on through a
+// `blocks` edge — the only dependency type bd's `ready` and `blocked`
+// treat as blocking (parent-child, related, tracks, … do not gate
+// work). An edge with no recorded type is counted: bd's default type
+// is blocks. Reads the inline edges `bd list` / `bd ready` embed; a
+// query-backed fetch carries none, and then this is empty.
+func (i Issue) BlockingDependencies() []string {
+	var out []string
+	for _, d := range i.Dependencies {
+		if (d.Type == "" || d.Type == "blocks") && d.DependsOnID != "" {
+			out = append(out, d.DependsOnID)
+		}
+	}
+	return out
+}
+
 // LabelAgentHandoff marks an issue that another agent is actively
 // working — the current agent must NOT pick it up; a human orchestrates
 // the cross-agent coordination. It drives the AGENT-HANDOFF owner badge

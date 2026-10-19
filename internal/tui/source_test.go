@@ -37,6 +37,10 @@ func TestBDSource_PickFetchCall(t *testing.T) {
 		{"mine no-me open uses query", filter.PresetMine, "", false, fetchQuery, `status!=closed`},
 		{"human open uses query", filter.PresetHuman, "", false, fetchQuery, `label=human AND status!=closed`},
 		{"human + closed uses query", filter.PresetHuman, "", true, fetchQuery, `label=human`},
+		// blocked lists and filters (would-you-kindly-p00h.3); closed has
+		// no effect because a closed issue is never blocked.
+		{"blocked routes to list + filter", filter.PresetBlocked, "ev", false, fetchBlocked, ""},
+		{"blocked + closed still lists", filter.PresetBlocked, "ev", true, fetchBlocked, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1622,5 +1626,43 @@ func TestMultiBDSource_CloseManyGroupsByRepoAndRoutesFailures(t *testing.T) {
 	}
 	if len(failed) != 1 || failed[0].Issue.ID != "x-1" {
 		t.Fatalf("the unregistered repo's issue must come back as a failure; got %+v", failed)
+	}
+}
+
+// The blocked rule is bd's: status=blocked, or an open `blocks` edge
+// to a non-closed issue of the same set. Other edge types and closed
+// (absent) blockers do not count (would-you-kindly-p00h.3).
+func TestFilterBlocked(t *testing.T) {
+	dep := func(to, typ string) beads.Dependency { return beads.Dependency{DependsOnID: to, Type: typ} }
+	in := []beads.Issue{
+		{ID: "a", Status: "open"},    // free
+		{ID: "b", Status: "blocked"}, // by status
+		{ID: "c", Status: "open", Dependencies: []beads.Dependency{dep("a", "blocks")}},       // by open dep
+		{ID: "d", Status: "open", Dependencies: []beads.Dependency{dep("zzz", "blocks")}},     // blocker closed/absent
+		{ID: "e", Status: "open", Dependencies: []beads.Dependency{dep("a", "parent-child")}}, // not a blocking type
+		{ID: "f", Status: "open", Dependencies: []beads.Dependency{dep("a", "")}},             // untyped = blocks
+		{ID: "g", Status: "closed", Dependencies: []beads.Dependency{dep("a", "blocks")}},     // closed never blocked
+		{ID: "h", Status: "open", Dependencies: []beads.Dependency{dep("g", "blocks")}},       // blocker is closed
+		{ID: "i", Status: "deferred", Dependencies: []beads.Dependency{dep("b", "blocks")}},   // non-closed blocker counts
+	}
+	got := filterBlocked(in)
+	var ids []string
+	for _, i := range got {
+		ids = append(ids, i.ID)
+	}
+	if want := "b c f i"; strings.Join(ids, " ") != want {
+		t.Errorf("filterBlocked = %v, want %s", ids, want)
+	}
+	// The instant approximation applies the same rule to an all snapshot.
+	approx, ok := issuesMatchingPreset(in, filter.PresetAll, filter.PresetBlocked, "")
+	if !ok {
+		t.Fatal("blocked should be derivable from an all snapshot")
+	}
+	ids = nil
+	for _, i := range approx {
+		ids = append(ids, i.ID)
+	}
+	if want := "b c f i"; strings.Join(ids, " ") != want {
+		t.Errorf("issuesMatchingPreset(blocked) = %v, want %s", ids, want)
 	}
 }

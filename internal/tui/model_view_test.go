@@ -879,3 +879,24 @@ func TestLeaseDetailLine(t *testing.T) {
 		t.Errorf("unclaimed issue should have no lease line; got %q", got)
 	}
 }
+
+// The blocked preset names both populations it unions, so an `open`
+// row in it reads as dependency-blocked (would-you-kindly-p00h.3).
+func TestRenderStatsLine_BlockedPresetCountsBothKinds(t *testing.T) {
+	src := &stubSource{issues: []beads.Issue{
+		{ID: "b-1", Status: "blocked"},
+		{ID: "b-2", Status: "open", Dependencies: []beads.Dependency{{DependsOnID: "x", Type: "blocks"}}},
+		{ID: "b-3", Status: "open"},
+	}}
+	m := New(src).WithPreset(filter.PresetBlocked)
+	m = applyFetched(m, src)
+	got := m.renderStatsLine()
+	if !strings.Contains(got, "1 by status, 2 by open deps") {
+		t.Errorf("stats line = %q, want the blocked breakdown", got)
+	}
+	// Other presets do not carry the breakdown.
+	m = applyFetched(New(src), src)
+	if got := m.renderStatsLine(); strings.Contains(got, "by status") {
+		t.Errorf("all preset should not show the blocked breakdown: %q", got)
+	}
+}

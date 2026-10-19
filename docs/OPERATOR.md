@@ -90,6 +90,14 @@ distinguishable at a glance without leaving your current view. (The
 marker is provenance, kept separate from the Owner column's ownership
 badge — a review issue is still agent-owned work to fix.)
 
+The `blocked` preset is what `bd blocked` computes, not a status query:
+issues whose status is `blocked`, plus open issues with a `blocks`
+dependency on another open issue in the same workspace (bd leaves those
+`open`, so they look ready until you ask). The status bar says how many
+of each (`N by status, M by open deps`). Other edge types
+(parent-child, related, …) don't block, and a blocker in another
+workspace isn't visible to wyk.
+
 
 ## Managing the registry
 

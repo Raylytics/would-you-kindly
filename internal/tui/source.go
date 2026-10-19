@@ -86,6 +86,12 @@ const (
 	fetchList
 	fetchListAll
 	fetchQuery
+	// fetchBlocked is `bd list` (every non-closed issue, edges inline)
+	// reduced by filterBlocked — what `bd blocked` computes. A
+	// status=blocked query would miss the issues bd leaves `open`
+	// while a `blocks` dependency is still open
+	// (would-you-kindly-p00h.3).
+	fetchBlocked
 )
 
 // pickFetchCall resolves the preset + flags to a bd subcommand
@@ -100,6 +106,12 @@ func (s *BDSource) pickFetchCall(p filter.Preset) (fetchCall, string) {
 		// reproduce; defer to it. IncludeClosed has no effect — bd
 		// ready is open-only by definition.
 		return fetchReady, ""
+	case filter.PresetBlocked:
+		// Dependency-blocked issues stay status=open in bd; only the
+		// list payload (edges inline) can tell them apart from ready
+		// work. IncludeClosed has no effect: a closed issue is never
+		// blocked, and its blockers no longer block.
+		return fetchBlocked, ""
 	case filter.PresetAll:
 		// "all" in the TUI means "all non-closed" by default —
 		// opening wyk should show actionable work, not the full
@@ -142,6 +154,11 @@ func (s *BDSource) Fetch(ctx context.Context, p filter.Preset) ([]beads.Issue, e
 		issues, err = s.Client.List(ctx)
 	case fetchQuery:
 		issues, err = s.Client.Query(ctx, q)
+	case fetchBlocked:
+		issues, err = s.Client.List(ctx)
+		if err == nil {
+			issues = filterBlocked(issues)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -149,6 +166,53 @@ func (s *BDSource) Fetch(ctx context.Context, p filter.Preset) ([]beads.Issue, e
 	decorateIssues(issues, s.Name, func() string { return gitBranch(ctx, s.Client.Dir) })
 	markBlockedByHuman(ctx, s.Client, issues, s.DepSem)
 	return issues, nil
+}
+
+// filterBlocked keeps, from one workspace's non-closed issues, the rows
+// a person means by "blocked": status is `blocked`, or the issue has a
+// `blocks` dependency on another issue of the same non-closed set.
+// That is the rule `bd blocked` and `bd ready` apply; bd leaves such an
+// issue `open`, so `status=blocked` alone under-reports. A blocker that
+// is not in the set is closed (or lives in another workspace, which
+// wyk's single-workspace edges cannot see) and does not block.
+func filterBlocked(nonClosed []beads.Issue) []beads.Issue {
+	open := openIDSet(nonClosed)
+	var out []beads.Issue
+	for _, i := range nonClosed {
+		if isBlockedRow(i, open) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// openIDSet indexes the non-closed IDs of a slice.
+func openIDSet(issues []beads.Issue) map[string]bool {
+	open := make(map[string]bool, len(issues))
+	for _, i := range issues {
+		if i.Status != "closed" {
+			open[i.ID] = true
+		}
+	}
+	return open
+}
+
+// isBlockedRow is filterBlocked's per-row rule against a precomputed
+// open-ID set; shared with the in-memory preset approximation so the
+// instant paint and the live fetch agree.
+func isBlockedRow(i beads.Issue, open map[string]bool) bool {
+	if i.Status == "closed" {
+		return false
+	}
+	if i.Status == "blocked" {
+		return true
+	}
+	for _, id := range i.BlockingDependencies() {
+		if open[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // markBlockedByHumanConcurrency is the default cap on in-flight
