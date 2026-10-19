@@ -234,6 +234,11 @@ func main() {
 	}
 
 	model := tui.NewWithHint(src, hint).WithMe(*me)
+	// The handoff hook hears about H / bulk H / close of a human task
+	// from the TUI too, once bd has the write (docs/HOOKS.md).
+	if hd := newHandoffHookDispatcher(); hd.Config.Enabled() {
+		model = model.WithHandoffHook(newTUIHookFirer(hd, repoPaths))
+	}
 	// Restore the last session (filter preset, sort key, cursor) from
 	// ~/.config/wyk/state.json so a re-opened tab lands where the user
 	// left off. Applied BEFORE the -preset flag so an explicit flag

@@ -246,14 +246,17 @@ func (m Model) toggleHuman() (tea.Model, tea.Cmd) {
 		})
 	}
 	i := m.visible[m.cursor]
+	// The issue rides along (runWriteWithIssue) so the handoff hook
+	// can be fired for it once the write lands — in multi-repo mode
+	// the hook needs Issue.Repo to find the workspace.
 	if i.IsHuman() {
 		m.lastAction = repeatableAction{kind: "unflag"}
-		return m, runWrite("unflag", i.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("unflag", i, func(ctx context.Context) error {
 			return mu.RemoveLabel(ctx, i, "human")
 		})
 	}
 	m.lastAction = repeatableAction{kind: "flag"}
-	return m, runWrite("flag", i.ID, func(ctx context.Context) error {
+	return m, runWriteWithIssue("flag", i, func(ctx context.Context) error {
 		return mu.AddLabel(ctx, i, "human")
 	})
 }
@@ -479,7 +482,13 @@ func (m Model) handleBulkWriteResult(msg bulkWriteMsg) (tea.Model, tea.Cmd) {
 			m.optimisticListUpdate("close", t)
 		}
 	}
-	return m, tea.Batch(m.fetchCmd(), flashClearCmd(m.statusGen))
+	cmds := []tea.Cmd{m.fetchCmd(), flashClearCmd(m.statusGen)}
+	if event, targets := bulkHookTargets(msg.action, msg.succeeded); len(targets) > 0 {
+		if hc := m.hookCmd(event, targets...); hc != nil {
+			cmds = append(cmds, hc)
+		}
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // repeatableAction captures the minimum a `.` re-dispatch needs:
@@ -558,11 +567,11 @@ func (m Model) handleRepeat() (tea.Model, tea.Cmd) {
 			return mu.SetIssueType(ctx, target, arg)
 		})
 	case "flag":
-		return m, runWrite("flag", target.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("flag", target, func(ctx context.Context) error {
 			return mu.AddLabel(ctx, target, "human")
 		})
 	case "unflag":
-		return m, runWrite("unflag", target.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("unflag", target, func(ctx context.Context) error {
 			return mu.RemoveLabel(ctx, target, "human")
 		})
 	default:
@@ -841,7 +850,13 @@ func (m Model) handleWriteResult(msg writeMsg) (tea.Model, tea.Cmd) {
 	// Refetch so the list reflects the write. Loading flag isn't set
 	// here because the existing data is still valid until the new
 	// fetch arrives — flashing "loading…" would just be noise.
-	return m, tea.Batch(m.fetchCmd(), flashClearCmd(m.statusGen))
+	cmds := []tea.Cmd{m.fetchCmd(), flashClearCmd(m.statusGen)}
+	// A human-label transition also goes to the handoff hook, now that
+	// bd has it; the hook's own result lands later as a hookMsg.
+	if hc := m.hookCmd(hookEventFor(msg.action, msg.issue), msg.issue); hc != nil {
+		cmds = append(cmds, hc)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // resolveDetailDeps returns a Cmd that lazily resolves a single
@@ -1246,7 +1261,14 @@ func (m Model) updateLabel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.marked) > 0 {
 			targets := m.markedIssues()
 			m.marked = nil
-			return m, runBulkWrite("label", targets, func(ctx context.Context, i beads.Issue) error {
+			// Typing "human" here IS a bulk flag: report it as one so
+			// the banner reads "flagged N rows" and the handoff hook
+			// hears about it like it does for H.
+			action := "label"
+			if label == "human" {
+				action = "flag"
+			}
+			return m, runBulkWrite(action, targets, func(ctx context.Context, i beads.Issue) error {
 				if i.HasLabel(label) {
 					return nil // idempotent add
 				}
@@ -1259,12 +1281,12 @@ func (m Model) updateLabel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if target.HasLabel(label) {
 			m.lastAction = repeatableAction{kind: "unlabel", arg: label}
-			return m, runWrite("unlabel:"+label, target.ID, func(ctx context.Context) error {
+			return m, runWriteWithIssue("unlabel:"+label, target, func(ctx context.Context) error {
 				return mu.RemoveLabel(ctx, target, label)
 			})
 		}
 		m.lastAction = repeatableAction{kind: "label", arg: label}
-		return m, runWrite("label:"+label, target.ID, func(ctx context.Context) error {
+		return m, runWriteWithIssue("label:"+label, target, func(ctx context.Context) error {
 			return mu.AddLabel(ctx, target, label)
 		})
 	}

@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through `-slim`. The plugin's SessionStart hook prints one line when
   a hook is active, and the `wyk-handoff` skill explains the hook, exit
   3, and `-due`.
+- **The TUI fires the handoff hook too** (would-you-kindly-2pwr.5). `H`
+  on an agent row (or a bulk `H`, or `:label human`) sends `handoff`,
+  `H` on a human row sends `bounce`, and closing a human-labelled row
+  (single or bulk) sends `close`, each with `actor: "tui"` and only after
+  bd confirms the write. The hook's answer lands on the status line
+  (`hook (handoff): <id>: <url>`, or `N mirrored` for a bulk flag); a
+  failure stays until the next key, says that bd is already written so
+  the action is not repeated, and carries the replay command. In
+  multi-repo mode the row's workspace is resolved from the registry.
+  This closes the generic handoff hook epic (would-you-kindly-2pwr).
 
 ### Fixed
 

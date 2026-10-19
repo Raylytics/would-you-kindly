@@ -185,8 +185,12 @@ type DepLister interface {
 
 // Model is the Bubble Tea model.
 type Model struct {
-	src    Source
-	keys   keyMap
+	src  Source
+	keys keyMap
+	// hook, when set, is told about the human-label transitions this
+	// model writes (handoff / bounce / close) once bd has them. See
+	// hook.go.
+	hook   HookFirer
 	mode   mode
 	preset filter.Preset
 
@@ -1415,6 +1419,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bulkWriteMsg:
 		return m.handleBulkWriteResult(msg)
+
+	case hookMsg:
+		return m.handleHookResult(msg)
 
 	case rawBDMsg:
 		// Compose the overlay body: a header naming the command,

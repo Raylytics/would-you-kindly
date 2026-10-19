@@ -389,3 +389,84 @@ func TestHookDispatch_FlagsAfterPositionals(t *testing.T) {
 		t.Errorf("ping with an id: exit %d, stderr %q", code, stderr)
 	}
 }
+
+// The TUI adapter routes by Issue.Repo, fires with actor "tui", and
+// turns fireHandoffHook's output into a status-line answer or a one-line
+// error (would-you-kindly-2pwr.5).
+func TestTUIHookFirer(t *testing.T) {
+	var dirs []string
+	c := &stubHookClient{issue: beads.Issue{ID: "wyk-42", Labels: []string{"human"}}}
+	newClient := func(dir string) hookIssueClient {
+		dirs = append(dirs, dir)
+		return c
+	}
+	t.Run("routes multi-repo issues and answers with the url", func(t *testing.T) {
+		dirs = nil
+		r := &stubHookRunner{stdout: `{"ref":"ext:1","url":"https://todo.example/1"}`}
+		f := &tuiHookFirer{d: newTestDispatcher(r), dirs: map[string]string{"alpha": "/repos/alpha"}, fallback: "/cwd", newClient: newClient}
+		if !f.Wants("handoff") {
+			t.Fatal("Wants(handoff) = false for an all-events hook")
+		}
+		got, err := f.Fire(context.Background(), "handoff", beads.Issue{ID: "wyk-42", Repo: "alpha"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "https://todo.example/1" {
+			t.Errorf("answer = %q, want the url", got)
+		}
+		if len(dirs) != 1 || dirs[0] != "/repos/alpha" {
+			t.Errorf("client dirs = %v, want the alpha path", dirs)
+		}
+		if r.payload.Actor != hooks.ActorTUI || r.payload.Event != hooks.EventHandoff || r.payload.Repo.Path != "/repos/alpha" {
+			t.Errorf("payload actor/event/repo = %s/%s/%s", r.payload.Actor, r.payload.Event, r.payload.Repo.Path)
+		}
+		if c.refSet != "ext:1" {
+			t.Errorf("external ref %q not recorded on the issue", c.refSet)
+		}
+	})
+	t.Run("unknown repo falls back to the single workspace", func(t *testing.T) {
+		dirs = nil
+		r := &stubHookRunner{}
+		f := &tuiHookFirer{d: newTestDispatcher(r), fallback: "/single", newClient: newClient}
+		got, err := f.Fire(context.Background(), "close", beads.Issue{ID: "wyk-42", Repo: "whatever"})
+		if err != nil || got != "ok" {
+			t.Errorf("got %q, %v; want ok", got, err)
+		}
+		if len(dirs) != 1 || dirs[0] != "/single" {
+			t.Errorf("client dirs = %v, want /single", dirs)
+		}
+	})
+	t.Run("failure is one line with the replay command", func(t *testing.T) {
+		r := &stubHookRunner{err: &hooks.ExecError{ExitCode: 1, Stderr: "no API key"}}
+		f := &tuiHookFirer{d: newTestDispatcher(r), fallback: "/single", newClient: newClient}
+		_, err := f.Fire(context.Background(), "bounce", beads.Issue{ID: "wyk-42"})
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "\n") || !strings.Contains(msg, "no API key") || !strings.Contains(msg, "wyk hook dispatch -C /single bounce wyk-42") {
+			t.Errorf("error = %q, want one line with the script's stderr and the replay command", msg)
+		}
+	})
+	t.Run("event filter is honoured", func(t *testing.T) {
+		f := &tuiHookFirer{d: newTestDispatcher(&stubHookRunner{}, hooks.EventHandoff), newClient: newClient}
+		if f.Wants("close") || !f.Wants("handoff") {
+			t.Error("Wants should follow the configured events")
+		}
+	})
+}
+
+func TestHookAnswerAndOneLine(t *testing.T) {
+	if got := hookAnswer("hook (handoff): https://x/1\n"); got != "https://x/1" {
+		t.Errorf("hookAnswer = %q", got)
+	}
+	if got := hookAnswer("hook (close): ok"); got != "ok" {
+		t.Errorf("hookAnswer = %q", got)
+	}
+	if got := hookAnswer(""); got != "" {
+		t.Errorf("hookAnswer(empty) = %q", got)
+	}
+	if got := oneLine("wyk: the hook failed: x\n  Retry once fixed with: wyk hook dispatch handoff a\n"); got != "the hook failed: x · Retry once fixed with: wyk hook dispatch handoff a" {
+		t.Errorf("oneLine = %q", got)
+	}
+}

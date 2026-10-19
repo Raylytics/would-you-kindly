@@ -56,14 +56,22 @@ so a hostile issue title cannot become a shell command.
 
 | Event     | Fires after…                                                                  | Where                                                 |
 | --------- | ----------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `handoff` | the `human` label is added and the runbook written                            | `wyk handoff`, `wyk handoff -create`, TUI `H` (soon)  |
-| `bounce`  | the `human` label is removed — the human sent it back to the agent            | TUI `H` (soon), `wyk hook dispatch bounce <id>`       |
+| `handoff` | the `human` label is added and the runbook written                            | `wyk handoff`, `wyk handoff -create`, TUI `H` / bulk `H` / `:label human` |
+| `bounce`  | the `human` label is removed — the human sent it back to the agent            | TUI `H` on a human row, `wyk hook dispatch bounce <id>` |
 | `close`   | a human-labelled issue is closed                                              | TUI close, post-commit auto-close, `dispatch`         |
 | `ping`    | nothing — a probe with no issue, so a script can prove it starts and connects | `wyk doctor`, `wyk hook dispatch ping`                |
 
 Transitions made with the raw `bd` CLI (`bd label add <id> human`) are
 invisible to wyk and do not fire the hook. Use `wyk handoff`, or replay
 afterwards with `wyk hook dispatch handoff <id>`.
+
+In the TUI the hook runs after bd confirms the write, with
+`actor: "tui"`, and its answer lands on the status line
+(`hook (handoff): <id>: <url>`; a bulk flag reports `N mirrored`). A
+failure stays on screen until the next key and says that bd is already
+written, so the row is not flagged twice; the text carries the replay
+command. The issue is re-read from bd for the payload, so the script
+sees the labels as they now are.
 
 `ping` is never filtered out by `events`, so `wyk doctor` can always
 probe a hook that is narrowed to, say, `handoff` only.

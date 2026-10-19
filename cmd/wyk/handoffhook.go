@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -339,4 +340,90 @@ func runHookDispatch(args []string) int {
 	return fireHandoffHook(ctx, client, d, handoffHookInput{
 		Event: event, Actor: hooks.ActorCLI, ID: id, Dir: *dir, Issue: &issue,
 	}, os.Stdout, os.Stderr)
+}
+
+// tuiHookFirer adapts fireHandoffHook to the TUI's HookFirer seam
+// (internal/tui/hook.go): the model names the event and the row, this
+// finds the row's workspace and runs the same path `wyk handoff` does,
+// with actor "tui" (would-you-kindly-2pwr.5). The issue is re-read from
+// bd (Issue nil → fireHandoffHook's Show) so the script sees the row
+// as it now is, not the pre-write snapshot the model held.
+type tuiHookFirer struct {
+	d *hooks.Dispatcher
+	// dirs maps a registry name (Issue.Repo) to its path in multi-repo
+	// mode; fallback is the single workspace otherwise ("" = cwd).
+	dirs     map[string]string
+	fallback string
+	// newClient is newHandoffHookClient, swappable in tests.
+	newClient func(dir string) hookIssueClient
+}
+
+// newTUIHookFirer builds the adapter for the workspaces the TUI shows.
+// repoPaths is what buildSource returned: one path for a single
+// workspace, else the registry's paths, in which case names are looked
+// up from the registry so Issue.Repo can be routed.
+func newTUIHookFirer(d *hooks.Dispatcher, repoPaths []string) *tuiHookFirer {
+	f := &tuiHookFirer{d: d, newClient: newHandoffHookClient}
+	if len(repoPaths) == 1 {
+		f.fallback = repoPaths[0]
+		return f
+	}
+	f.dirs = map[string]string{}
+	if regPath, err := registry.DefaultPath(); err == nil {
+		if reg, err := registry.Load(regPath); err == nil {
+			for _, r := range reg.Repos {
+				f.dirs[r.Name] = r.Path
+			}
+		}
+	}
+	return f
+}
+
+func (f *tuiHookFirer) Wants(event string) bool {
+	return f.d != nil && f.d.Config.Wants(hooks.Event(event))
+}
+
+// dirFor resolves the workspace an issue lives in.
+func (f *tuiHookFirer) dirFor(i beads.Issue) string {
+	if p, ok := f.dirs[i.Repo]; ok {
+		return p
+	}
+	return f.fallback
+}
+
+func (f *tuiHookFirer) Fire(ctx context.Context, event string, i beads.Issue) (string, error) {
+	dir := f.dirFor(i)
+	var out, errw bytes.Buffer
+	code := fireHandoffHook(ctx, f.newClient(dir), f.d, handoffHookInput{
+		Event: hooks.Event(event), Actor: hooks.ActorTUI, ID: i.ID, Dir: dir,
+	}, &out, &errw)
+	if code != 0 {
+		return "", errors.New(oneLine(errw.String()))
+	}
+	return hookAnswer(out.String()), nil
+}
+
+// hookAnswer reduces fireHandoffHook's stdout ("hook (handoff): <url>")
+// to the part after the event tag, for a status line that already
+// names the event.
+func hookAnswer(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if _, rest, ok := strings.Cut(last, "): "); ok && strings.HasPrefix(last, "hook (") {
+		return rest
+	}
+	return last
+}
+
+// oneLine folds a multi-line stderr report into one banner line: the
+// "wyk: " prefix dropped, lines joined with " · ".
+func oneLine(stderr string) string {
+	var parts []string
+	for _, l := range strings.Split(stderr, "\n") {
+		l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "wyk: "))
+		if l != "" {
+			parts = append(parts, l)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
