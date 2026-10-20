@@ -29,3 +29,11 @@
 wyk-debug.log*
 wyk-crash.log*
 wyk-bd-errors.log*
+
+# Secrets live in 1Password (see the Secrets section of CLAUDE.md). op.env
+# holds op:// references for `op run --env-file=op.env`; a literal .env is a
+# derived copy. Neither is ever committed; op.env.example is the template.
+op.env
+.env
+.env.*
+!op.env.example
