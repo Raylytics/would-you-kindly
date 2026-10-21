@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Go toolchain bumped to 1.26.10** for GO-2026-6809 (crypto/x509
+  should distrust compromised intermediate certificates). govulncheck
+  traced it to `updater.LatestLive`'s HTTPS download, so the `test`
+  workflow's vulnerability scan failed on 1.26.9.
+
 ### Added
 
 - **`docs/backlog-snapshot.md`: a scrubbed, read-only snapshot of this
