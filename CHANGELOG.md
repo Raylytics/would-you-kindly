@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-10-22
+
 ### Security
 
 - **Go toolchain bumped to 1.26.10** for GO-2026-6809 (crypto/x509
@@ -107,6 +109,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   day in the life, screenshots, status) and the Security Model is now a
   section of `SECURITY.md`; links into the old README sections were
   repointed.
+- **`.beads/` is no longer tracked in git** (decision 2026-10-20). bd's
+  `config.yaml`, `metadata.json` and README used to be committed while
+  the tracker's state (the embedded Dolt database, backups, the
+  interaction log) was already local; now nothing under `.beads/` is in
+  the tree, and `git ls-files .beads` must stay empty. Issue data moves
+  between machines only through bd's Dolt remote (`refs/dolt/data`, via
+  `bd dolt push` / `pull`); a fresh clone runs `bd init` for its own
+  workspace. See the note in `AGENTS.md`.
 
 ### Fixed
 
@@ -170,6 +180,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bumped together with test.yml like golangci-lint), `make check` calls
   it last, and `go 1.26.9` in go.mod makes `GOTOOLCHAIN=auto` fetch the
   patched stdlib for every local build and release.
+- **The full-screen detail view sizes its body from the rendered
+  header, so a claimed issue with a long body keeps its badge and
+  title** (roborev 6359). The viewport budget subtracted the fact lines
+  but not the lease line, leaving the view two rows taller than the
+  terminal. One function now builds the header for both the paint and
+  the budget, so any line the header grows is paid for by the body. The
+  split-pane header shows the same `parent` / `activity` / `closed`
+  lines as the full-screen one, and the `N by open deps` breakdown in
+  the status bar waits for the blocked rows to land instead of painting
+  on the preset switch.
 
 ## [0.8.0] — 2026-10-12
 
@@ -1880,7 +1900,8 @@ through multiple roborev rounds.
   real bd issues.
 - Any background daemon.
 
-[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.8.1
 [0.8.0]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.8.0
 [0.7.0]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.7.0
 [0.6.1]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.6.1
