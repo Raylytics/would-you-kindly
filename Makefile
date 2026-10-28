@@ -16,16 +16,15 @@ backlog-snapshot:
 backlog-snapshot-check:
 	@./scripts/backlog-snapshot-check.sh
 
-# golangci-lint version CI pins (.github/workflows/test.yml). Single
-# source of truth: the `lint` target warns when the locally-installed
-# binary differs, and the install hints reference it — so "a green
-# `make check` == a green push" can't be quietly undermined by a stray
-# local linter version running different default checks than CI. Bump
-# here AND in test.yml together.
-GOLANGCI_VERSION := v2.12.2
+# Tool versions are pinned once, in .tool-versions (mise/asdf format), and
+# read here and by .github/workflows/ci.yml, so `make lint` and CI run the
+# same golangci-lint against the same Go toolchain. Bump .tool-versions
+# (and the `go` line in go.mod for Go) in one commit.
+GO_VERSION := $(shell awk '$$1 == "golang" {print $$2}' .tool-versions)
+GOLANGCI_VERSION := v$(shell awk '$$1 == "golangci-lint" {print $$2}' .tool-versions)
 
-# govulncheck version CI pins (.github/workflows/test.yml). Same rule as
-# GOLANGCI_VERSION: bump here AND in test.yml together. `make check`
+# govulncheck version CI pins (.github/workflows/ci.yml). Bump here AND in
+# ci.yml together. `make check`
 # runs it because CI does — a scan that only ran in CI let a stale local
 # toolchain (go.mod's bare `go 1.26` satisfied by an old 1.26.x) carry
 # called stdlib CVEs through a green local gate (would-you-kindly-351g).
@@ -85,23 +84,17 @@ plugin-skills-check: plugin-skills
 	fi
 	@echo "plugin-skills-check: plugin/skills/ is up to date"
 
-# golangci-lint pinned to the version CI runs (.github/workflows/test.yml,
-# .golangci.yml: govet, staticcheck, errcheck, ineffassign, unused).
-# Catches what `go vet` alone misses — the gate that sat red-but-unwatched
-# in CI because the local gates didn't run it.
+# golangci-lint at the version .tool-versions pins (.golangci.yml: govet,
+# staticcheck, errcheck, ineffassign, unused), run under the Go toolchain
+# .tool-versions pins. `go run …@version` builds the linter once (cached)
+# with exactly that toolchain, so a newer local Go cannot make the linter
+# fail to read the stdlib export data, which is what broke `make lint` on a
+# Go 1.27 workstation while CI (pinned) stayed green. GOTOOLCHAIN makes
+# every nested `go` call use the pinned version too. The pre-commit hook
+# runs this same target.
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 || { \
-		echo "lint: golangci-lint not found — install the CI-pinned version:"; \
-		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)"; \
-		exit 1; \
-	}
-	@have=$$(golangci-lint version 2>/dev/null | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p'); \
-	want=$$(echo "$(GOLANGCI_VERSION)" | sed 's/^v//'); \
-	if [ -n "$$have" ] && [ "$$have" != "$$want" ]; then \
-		echo "lint: WARNING local golangci-lint $$have != CI-pinned $$want — results may diverge from CI"; \
-		echo "      install the pinned version: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)"; \
-	fi
-	@golangci-lint run
+	@echo "==> golangci-lint $(GOLANGCI_VERSION) (go$(GO_VERSION))"
+	@GOTOOLCHAIN=go$(GO_VERSION) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run
 
 # govulncheck at the CI-pinned version. `go run …@version` caches the
 # binary after the first run, but every run fetches the vulnerability

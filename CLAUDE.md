@@ -114,8 +114,9 @@ Implementations can opt into any subset; the model runtime
 type-asserts. `MultiSource` is a fourth (optional) interface that lets
 the model render per-sub fetch failures.
 
-**Commit conventions.** Conventional-Commits prefixes (`feat`, `fix`,
-`docs`, `ci`, `chore`) with a scope (`feat(tui):`, `fix(doctor):`).
+**Commit conventions.** Conventional Commits 1.0 as the Version control
+section below spells out (all eleven types, a scope such as `feat(tui):` or
+`fix(doctor):`, subject at most 72 characters, enforced by the commit-msg hook).
 Issues are closed via `Closes: <id>` trailers (one ID per line — the
 auto-close hook deliberately rejects multi-ID lines, see the auto-close section of docs/OPERATOR.md).
 
@@ -192,3 +193,14 @@ with a note explaining what's still needed; don't sit silently).
 | `HOMEBREW_TAP_GITHUB_TOKEN` | `.github/workflows/release.yml`: goreleaser pushes the updated cask to the Homebrew tap on a tag | GitHub Actions secret on this repo (CI only; no local copy) | `wyk-homebrew-tap` (to create; the PAT scoped to the tap repo) |
 
 Not secrets: `GITHUB_TOKEN` in that workflow is the ephemeral `github.token`; the `WYK_*`, `XDG_*`, `BEADS_ACTOR`, and `EDITOR` env vars are plain config.
+
+## Version control
+
+This repo follows the Raylytics Version Control Standard, tier 1, stack go. Source: STANDARD.md in the `raylytics` repo (2026-10-27); cite its section in a commit body when a rule decides something.
+
+- Branch from `main` as `type/short-kebab`. Every change lands as a squash-merged PR with CI green; the PR title is the Conventional Commit subject. Agent work always goes through a PR.
+- Commits follow Conventional Commits 1.0: `type(scope): subject`, subject at most 72 characters, imperative, no trailing period, then a body that says why. Types: feat, fix, perf, refactor, style, docs, test, build, ci, chore, revert. Scopes here: tui, cli, doctor, init, hooks, updater, registry, skills, plugin, docs, ci, deps, release, vc. Keep the `Closes: <bd-id>` trailer convention above; it is a footer, not a byline.
+- Never add `Co-Authored-By`, `Generated with`, or any AI byline; the commit-msg hook refuses them. Never use `--no-verify`. Never force-push `main`.
+- Secrets never enter the tree; `.env.example` lists the variables; gitleaks runs in pre-commit and CI.
+- Commands: `pre-commit install --hook-type pre-commit --hook-type commit-msg` once; lint `make lint`; test `go test -race ./...` (`make check` is the full local gate); release `scripts/release.sh X.Y.Z` (no version file: the tag is the version, goreleaser injects it; the script regenerates CHANGELOG.md with git-cliff, commits `chore(release): vX.Y.Z` and pushes the signed tag).
+- Do not commit `.claude/settings.local.json`, `QUEUE.md`, `HANDOFF*`, `.beads/`, scratch notes or session logs.

@@ -19,13 +19,16 @@ Required:
   that file is bd's, not wyk's.
 - A POSIX shell + git
 
-Optional but recommended:
+Then install the git hooks once per clone (they run gofmt, golangci-lint at the
+pinned version, gitleaks, and the commit-message checks; CI runs the same set):
 
 ```bash
-# golangci-lint v2 is what CI runs; tests pass without it but CI will catch
-# any drift.
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
+
+golangci-lint needs no separate install: `make lint` runs the version pinned in
+`.tool-versions` under the Go toolchain `go.mod` names, which is exactly what CI
+runs.
 
 Clone, then:
 
@@ -111,7 +114,16 @@ Look at `git log --oneline` for the style. The short form:
   for the full rules (multiple IDs need separate trailer lines; explanatory
   text on the trailer line disqualifies it).
 
-The `area` prefixes in current use: `feat`, `fix`, `ci`, `docs`, `chore`.
+The types are the Conventional Commits set the commit-msg hook enforces:
+`feat`, `fix`, `perf`, `refactor`, `style`, `docs`, `test`, `build`, `ci`,
+`chore`, `revert`. No AI bylines (`Co-Authored-By: Claude`, `Generated with`):
+the hook refuses them. Never `--no-verify`.
+
+Every change lands through a pull request, squash-merged with CI green; the PR
+title becomes the squash commit subject, so it must be a Conventional Commit
+subject too. This repo follows the Raylytics Version Control Standard
+(`STANDARD.md` in the `raylytics` repo); the `Version control` section of
+[CLAUDE.md](CLAUDE.md) is the short form.
 
 ## Issue tracking
 
@@ -156,9 +168,12 @@ addressing them is the normal back-and-forth.
 
 ## Releasing
 
-Maintainers only. Each release is a `git tag -a vX.Y.Z` + push; the release
-workflow cuts the GitHub release from the matching `CHANGELOG.md` section,
-and `wyk update` finds it via the GitHub releases API.
+Maintainers only. `scripts/release.sh X.Y.Z` on a clean, green `main`
+prepends the release section to `CHANGELOG.md` from the Conventional Commits
+since the last tag (git-cliff, `cliff.toml`), commits `chore(release): vX.Y.Z`,
+and pushes a signed annotated tag. The release workflow then cuts the GitHub
+release from that `CHANGELOG.md` section (goreleaser attaches the binaries and
+bumps the Homebrew tap), and `wyk update` finds it via the GitHub releases API.
 
 ### Versioning (pre-1.0)
 

@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # SHA-pinned for supply-chain safety (version in the trailing comment);
-      # both run on the Node 24 runtime. Keep in sync with test.yml.
+      # both run on the Node 24 runtime. Keep in sync with ci.yml.
       # fetch-depth: 0 — goreleaser reads the full tag history to compute
       # the version and changelog diff; a shallow clone breaks it.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -40,3 +40,14 @@ op.env
 
 # beads tracker state is local-only (decision 2026-10-20): never commit the export
 .beads/
+
+# Raylytics VC Standard
+!.env.example
+.idea/
+.vscode/
+*.log
+QUEUE.md
+HANDOFF*
+bin/
+dist/
+coverage.out

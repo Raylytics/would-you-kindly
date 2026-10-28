@@ -579,7 +579,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of being a one-way trip.
 
 - **Every subcommand's `-h` now leads with a synopsis and common-case
-  examples** — the `init -h` treatment, everywhere: `wyk <name> — 
+  examples** — the `init -h` treatment, everywhere: `wyk <name> —
   <summary>`, the canonical usage, then 1-3 copy-pasteable examples
   before the flag table, instead of Go's bare flag dump. Content comes
   from the same source as the generated CLI reference (which now also
