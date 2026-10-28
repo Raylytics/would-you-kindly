@@ -69,4 +69,7 @@ commit_parsers = [
   { message = "^chore", skip = true },
   { body = ".*BREAKING CHANGE", group = "<!-- 4 -->Breaking" },
   { breaking = true, group = "<!-- 4 -->Breaking" },
+  # Anything else (a subject whose "type" is not one of the eleven, such as a
+  # bd issue id or a capitalised word before the colon) is not a changelog entry.
+  { message = ".*", skip = true },
 ]
