@@ -42,7 +42,7 @@ jobs:
       - name: pre-commit
         run: uvx pre-commit run --all-files --show-diff-on-failure
 
-  test:
+  test-os:
     name: test (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -93,7 +93,7 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
           govulncheck ./...
 
-  build:
+  build-os:
     name: build (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -107,6 +107,26 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - run: go build ./...
+
+  # The ruleset requires checks named exactly `test` and `build`; a matrix job
+  # reports one check per leg ("test (ubuntu-latest)"), so these two gather the
+  # legs under the plain names and fail when any leg failed or was cancelled.
+  test:
+    needs: test-os
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "test-os result: ${{ needs.test-os.result }}"
+          [ "${{ needs.test-os.result }}" = success ]
+  build:
+    needs: build-os
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "build-os result: ${{ needs.build-os.result }}"
+          [ "${{ needs.build-os.result }}" = success ]
 
   pr-title:
     if: github.event_name == 'pull_request'
