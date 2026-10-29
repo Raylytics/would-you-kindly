@@ -1,0 +1,145 @@
+# would-you-kindly CI, on the Raylytics VC Standard template (templates/ci/go.yml,
+# STANDARD.md §8, §12) merged with the previous test.yml: the pre-commit, test and
+# build jobs the Tier 1 ruleset requires by name, plus the repo's own gates
+# (docs-snapshot drift, backlog-snapshot scrub, govulncheck) and the macOS leg of
+# build + race-tested suite, because wyk is a TUI whose instant-refresh path uses
+# platform-specific fsnotify and it is developed on macOS. Static gates run once,
+# on Linux. Actions are pinned to full commit SHAs (version in the trailing
+# comment), resolved with `gh api` on 2026-10-27; bump deliberately.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    # gofmt, golangci-lint (via `make lint`, at the version .tool-versions pins,
+    # under the go.mod toolchain), gitleaks, whitespace and large-file checks:
+    # the same hooks `pre-commit install` runs on a contributor's machine.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: pre-commit
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
+  test-os:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # go.mod names the exact patch so CI and local builds scan the same
+          # patched stdlib with govulncheck.
+          go-version-file: go.mod
+          check-latest: true
+      - run: go mod download
+
+      - name: docs-snapshot drift check
+        if: matrix.os == 'ubuntu-latest'
+        # Regenerates docs/generated/{keymap.md,cli.md} and fails if the diff is
+        # not clean: the would-you-kindly.raylytics.io docs agent reads those
+        # files directly, so drift would silently feed it stale data.
+        run: |
+          if ! make docs-check; then
+            echo "::error::docs/generated/ is stale — run \`make docs-snapshot\` and commit the result"
+            exit 1
+          fi
+
+      - name: backlog-snapshot scrub check
+        if: matrix.os == 'ubuntu-latest'
+        # docs/backlog-snapshot.md is a public, scrubbed view of the bd tracker.
+        # CI cannot regenerate it (no bd here), so this only lints the committed
+        # file for anything the scrub must never let through.
+        run: make backlog-snapshot-check
+
+      - run: go vet ./...
+
+      - name: Test (with race detector)
+        # -race catches concurrency bugs the unit tests would otherwise silently
+        # leak past — load-bearing for MultiBDSource's parallel-fetch path.
+        run: go test -race -timeout 5m ./...
+
+      - name: Vulnerability scan (govulncheck)
+        if: matrix.os == 'ubuntu-latest'
+        # Reports known vulnerabilities in dependencies and the Go stdlib that
+        # the code actually calls. Pinned so a new release cannot flake CI;
+        # bump together with GOVULNCHECK_VERSION in the Makefile.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          govulncheck ./...
+
+  build-os:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go build ./...
+
+  # The ruleset requires checks named exactly `test` and `build`; a matrix job
+  # reports one check per leg ("test (ubuntu-latest)"), so these two gather the
+  # legs under the plain names and fail when any leg failed or was cancelled.
+  test:
+    needs: test-os
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "test-os result: ${{ needs.test-os.result }}"
+          [ "${{ needs.test-os.result }}" = success ]
+  build:
+    needs: build-os
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "build-os result: ${{ needs.build-os.result }}"
+          [ "${{ needs.build-os.result }}" = success ]
+
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR title is a Conventional Commit subject
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|perf|refactor|style|docs|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: .{1,60}$'
+          if printf '%s\n' "$TITLE" | grep -Eq "$pattern"; then
+            echo "ok: $TITLE"
+          else
+            echo "::error::PR title must match $pattern (it becomes the squash commit subject)"
+            exit 1
+          fi

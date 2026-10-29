@@ -1,8 +1,7 @@
 # would-you-kindly
 
-[![test](https://github.com/jimbottle/would-you-kindly/actions/workflows/test.yml/badge.svg)](https://github.com/jimbottle/would-you-kindly/actions/workflows/test.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/jimbottle/would-you-kindly.svg)](https://pkg.go.dev/github.com/jimbottle/would-you-kindly)
-[![Go Report Card](https://goreportcard.com/badge/github.com/jimbottle/would-you-kindly)](https://goreportcard.com/report/github.com/jimbottle/would-you-kindly)
+[![ci](https://github.com/jimbottle/would-you-kindly/actions/workflows/ci.yml/badge.svg)](https://github.com/jimbottle/would-you-kindly/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/jimbottle/would-you-kindly)](https://github.com/jimbottle/would-you-kindly/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A terminal UI over the [beads](https://github.com/gastownhall/beads) issue
@@ -224,6 +223,28 @@ The ones you'll use in the first five minutes; the full keymap is
 `wyk` is not a replacement for `bd`, not a server, and not a general
 project-management UI — the scope is the agent ↔ human handoff loop and
 the views that serve it.
+
+## Development
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type commit-msg   # once per clone
+make check                                                          # the full local gate: mirrors CI
+make lint                                                           # golangci-lint at the pinned version
+go test -race ./...
+```
+
+Tool versions are pinned once: Go in `go.mod`, Go and golangci-lint for local
+runs in `.tool-versions`, and the same values drive `.github/workflows/ci.yml`.
+Commits follow Conventional Commits and land through squash-merged PRs; the
+details are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Releasing
+
+`scripts/release.sh X.Y.Z` on a clean, green `main`: it prepends the release
+to `CHANGELOG.md` from the commits with git-cliff, commits
+`chore(release): vX.Y.Z`, and pushes a signed tag. The `release` workflow then
+runs goreleaser, which attaches the binaries and bumps the Homebrew tap. The
+changelog lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

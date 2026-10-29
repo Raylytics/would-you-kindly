@@ -58,4 +58,3 @@ workspaces whose contents — and whose `post-commit` hooks, which run when
 `~/.config/wyk/repos.json` (XDG-aware), an optional `theme.json` color
 overlay, and each initialized repo's `.git/hooks/post-commit`. Nothing
 leaves your machine.
-
