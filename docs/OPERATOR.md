@@ -688,7 +688,7 @@ runbook, following the cursor.
 
 `wyk` is actively developed. See the
 [CHANGELOG](../CHANGELOG.md) and the
-[GitHub releases](https://github.com/jimbottle/would-you-kindly/releases)
+[GitHub releases](https://github.com/raylytics/would-you-kindly/releases)
 for what's shipped and when. It's a CLI-driven toolkit around the
 human-in-the-loop handoff contract: the multi-repo TUI plus the
 subcommands listed in [`docs/generated/cli.md`](generated/cli.md),

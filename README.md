@@ -1,7 +1,7 @@
 # would-you-kindly
 
-[![ci](https://github.com/jimbottle/would-you-kindly/actions/workflows/ci.yml/badge.svg)](https://github.com/jimbottle/would-you-kindly/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/jimbottle/would-you-kindly)](https://github.com/jimbottle/would-you-kindly/releases/latest)
+[![ci](https://github.com/raylytics/would-you-kindly/actions/workflows/ci.yml/badge.svg)](https://github.com/raylytics/would-you-kindly/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/raylytics/would-you-kindly)](https://github.com/raylytics/would-you-kindly/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A terminal UI over the [beads](https://github.com/gastownhall/beads) issue
@@ -105,7 +105,7 @@ wyk is tested against **bd 1.0.4 or newer** (verified through 1.3.0);
 
 ```bash
 # Homebrew (macOS) — installs a prebuilt cask, no Go toolchain needed:
-brew install jimbottle/wyk/wyk
+brew install raylytics/wyk/wyk
 
 # With Go, latest tagged release:
 go install github.com/jimbottle/would-you-kindly/cmd/wyk@latest
@@ -116,7 +116,7 @@ go install github.com/jimbottle/would-you-kindly/cmd/wyk@main
 
 On Linux, use `go install` above, or grab a prebuilt linux/darwin
 (amd64/arm64) binary straight from the
-[Releases page](https://github.com/jimbottle/would-you-kindly/releases)
+[Releases page](https://github.com/raylytics/would-you-kindly/releases)
 (the Homebrew cask is macOS-only). You can also build from a checkout
 with `go build -o ./bin/wyk ./cmd/wyk`.
 
@@ -214,7 +214,7 @@ The ones you'll use in the first five minutes; the full keymap is
   reference; every subcommand that emits structured data accepts
   `-json`, and the shapes are stable across patch releases.
 - [`CHANGELOG.md`](CHANGELOG.md) and the
-  [GitHub releases](https://github.com/jimbottle/would-you-kindly/releases)
+  [GitHub releases](https://github.com/raylytics/would-you-kindly/releases)
   — what's shipped and when. [`CONTRIBUTING.md`](CONTRIBUTING.md) for
   the local gate and versioning policy; [`SECURITY.md`](SECURITY.md) for
   the security model (local, single-user, no telemetry, untrusted issue
