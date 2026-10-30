@@ -3,7 +3,7 @@
 # stays the documented default; this just adds binaries + `brew install`.
 #
 # IMPORTANT: the release.yml goreleaser step needs HOMEBREW_TAP_GITHUB_TOKEN
-# (a fine-grained PAT with contents:write on jimbottle/homebrew-wyk) and the
+# (a fine-grained PAT with contents:write on raylytics/homebrew-wyk) and the
 # tap repo to exist, or `brews:` publishing fails the release. Do not tag
 # until both are in place. Validate locally with:
 #   goreleaser check
@@ -46,17 +46,17 @@ checksum:
   name_template: checksums.txt
 
 # goreleaser deprecated `brews` (formulae) in favour of casks for binary
-# tools — Homebrew's own direction. `brew install jimbottle/wyk/wyk` works
+# tools — Homebrew's own direction. `brew install raylytics/wyk/wyk` works
 # the same for the user.
 homebrew_casks:
   - name: wyk
     binaries:
       - wyk
     repository:
-      owner: jimbottle
+      owner: raylytics
       name: homebrew-wyk
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: https://github.com/jimbottle/would-you-kindly
+    homepage: https://github.com/raylytics/would-you-kindly
     description: Terminal UI over the bd issue tracker with an agent/human handoff convention
     # bd is wyk's backing tracker but not a hard dependency (wyk degrades
     # to a clear error without it), so surface it as a caveat rather than

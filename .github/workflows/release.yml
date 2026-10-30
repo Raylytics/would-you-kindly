@@ -4,12 +4,12 @@ name: release
 # `wyk version --check` read the GitHub releases feed; `go install …@<tag>`
 # remains the documented default install path. goreleaser additionally
 # attaches prebuilt linux/darwin (amd64/arm64) archives + checksums and
-# updates the Homebrew tap (jimbottle/homebrew-wyk). The release notes come
+# updates the Homebrew tap (raylytics/homebrew-wyk). The release notes come
 # straight from the matching CHANGELOG.md section, so the changelog stays
 # the single source of truth.
 #
 # Requires the HOMEBREW_TAP_GITHUB_TOKEN secret (a fine-grained PAT with
-# contents:write on jimbottle/homebrew-wyk) and that tap repo to exist —
+# contents:write on raylytics/homebrew-wyk) and that tap repo to exist —
 # otherwise the cask-publish step fails the release. See .goreleaser.yaml.
 on:
   push:

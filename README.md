@@ -105,7 +105,7 @@ wyk is tested against **bd 1.0.4 or newer** (verified through 1.3.0);
 
 ```bash
 # Homebrew (macOS) — installs a prebuilt cask, no Go toolchain needed:
-brew install jimbottle/wyk/wyk
+brew install raylytics/wyk/wyk
 
 # With Go, latest tagged release:
 go install github.com/jimbottle/would-you-kindly/cmd/wyk@latest
