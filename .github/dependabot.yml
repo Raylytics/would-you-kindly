@@ -12,5 +12,5 @@ updates:
     schedule:
       interval: monthly
     groups:
-      dependencies:
+      deps:
         patterns: ["*"]
