@@ -37,10 +37,17 @@ func (s titleSource) Len() int            { return len(s) }
 //	mine    -> assignee == me, non-closed (or just non-closed when
 //	           me is empty, matching filter.QueryWithClosed's
 //	           degradation)
+//	ready   -> status == open with no `blocks` edge to a non-closed
+//	           row of the snapshot — bd ready's documented rule
+//	           ("open issues with no active blockers; excludes
+//	           in_progress, blocked, deferred, hooked"), i.e. the
+//	           complement of isBlockedRow over the open rows. A
+//	           blocker bd can see but the snapshot cannot (another
+//	           workspace) is the one divergence; the approx marker
+//	           covers it until the live fetch reconciles
+//	           (would-you-kindly-rz26)
 //
-// "ready" is excluded — bd computes dependency-readiness and a field
-// predicate would silently show blocked-by-open-deps rows. ok=false
-// means "can't approximate; cold-start instead". The predicates
+// ok=false means "can't approximate; cold-start instead". The predicates
 // filter closed rows EXPLICITLY: saveCacheCmd persists every
 // successful fetch, including ones taken while showClosed was on,
 // and sessions relaunch closed-excluded — so the snapshot cannot be
@@ -56,6 +63,9 @@ func issuesMatchingPreset(snapshot []beads.Issue, have, want filter.Preset, me s
 	case filter.PresetBlocked:
 		open := openIDSet(snapshot)
 		keep = func(i beads.Issue) bool { return isBlockedRow(i, open) }
+	case filter.PresetReady:
+		open := openIDSet(snapshot)
+		keep = func(i beads.Issue) bool { return i.Status == "open" && !isBlockedRow(i, open) }
 	case filter.PresetReview:
 		keep = func(i beads.Issue) bool { return i.HasLabel(filter.ReviewLabel) && i.Status != "closed" }
 	case filter.PresetMine:
@@ -219,9 +229,9 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 		// reconciles: the predicates drop closed rows regardless of
 		// showClosed, and the superset is either at most one refresh
 		// old (live this session) or carries its age from the on-disk
-		// cache (would-you-kindly-rqo9). "ready" can't be derived (bd
-		// owns dep-readiness) — it keeps the stale rows and the
-		// loading band says so.
+		// cache (would-you-kindly-rqo9). Only a switch with NO superset
+		// at all (cold session, nothing fetched under all yet) keeps
+		// the stale rows — and the loading band says so.
 		derived, ok := issuesMatchingPreset(all, filter.PresetAll, p, m.me)
 		if p == filter.PresetAll {
 			// Switching TO all with only the disk sidecar known: the

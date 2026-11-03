@@ -236,13 +236,13 @@ func TestRefreshKeyKeepsTableVisible(t *testing.T) {
 }
 
 func TestSwitchPresetKeepsRowsAndShowsRefreshIndicator(t *testing.T) {
-	// Switching presets no longer blanks the table — when the new
-	// view can't be painted from cache (ready: bd owns dep-readiness,
-	// so it can't be derived from the "all" superset) the previous
-	// rows stay on screen until the new fetch returns, with a
-	// "↻ refreshing" hint in the status bar. The cursor still resets
-	// to 0 so the user lands at the top of the new view as soon as
-	// data arrives.
+	// Switching presets no longer blanks the table: the new view
+	// paints from the "all" superset on this frame (ready derives
+	// too, since would-you-kindly-rz26 — the two open rows of the
+	// fixture; the in_progress one drops), with a "↻ refreshing"
+	// hint in the status bar until the live fetch reconciles. The
+	// cursor still resets to 0 so the user lands at the top of the
+	// new view as soon as data arrives.
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
 	preCount := len(m.all)
@@ -256,8 +256,8 @@ func TestSwitchPresetKeepsRowsAndShowsRefreshIndicator(t *testing.T) {
 		t.Fatalf("setup: Tab from all should land on ready; got %s", m.preset)
 	}
 
-	if len(m.all) != preCount {
-		t.Errorf("switchPreset must NOT clear all (blanks the screen); got all=%d, want %d", len(m.all), preCount)
+	if got := idsOfIssues(m.all); len(got) != 2 || got[0] != "a-1" || got[1] != "a-3" {
+		t.Errorf("switchPreset must NOT clear all (blanks the screen) — it paints the derived ready rows; got %v (from %d rows)", got, preCount)
 	}
 	if m.cursor != 0 {
 		t.Errorf("switchPreset should reset cursor; got %d", m.cursor)
