@@ -4,7 +4,7 @@
 # committed doc snapshots the would-you-kindly.raylytics.io docs agent
 # reads, and the plugin-skills sync.
 
-.PHONY: docs-snapshot docs-check plugin-skills plugin-skills-check backlog-snapshot backlog-snapshot-check lint vuln check help
+.PHONY: docs-snapshot docs-check plugin-skills plugin-skills-check backlog-snapshot backlog-snapshot-check release-fold-check lint vuln check help
 
 # Scrubbed, read-only snapshot of this repo's bd tracker for GitHub
 # visitors (docs/backlog-snapshot.md). Regeneration needs bd, so it is
@@ -97,6 +97,12 @@ plugin-skills-check: plugin-skills
 	fi
 	@echo "plugin-skills-check: plugin/skills/ is up to date"
 
+# scripts/changelog-fold.py rewrites CHANGELOG.md during a release and its
+# output is auto-merged and becomes the GitHub release notes, so it has
+# fixture tests (scripts/changelog_fold_test.py). Needs only python3.
+release-fold-check:
+	@echo "==> release-fold-check"; python3 -B -m unittest discover -s scripts -p 'changelog_fold_test.py' -q
+
 # golangci-lint at the version .tool-versions pins (.golangci.yml: govet,
 # staticcheck, errcheck, ineffassign, unused), run under the Go toolchain
 # .tool-versions pins. `go run …@version` builds the linter once (cached)
@@ -137,6 +143,7 @@ check:
 	@echo "==> go build"; go build ./...
 	@$(MAKE) --no-print-directory plugin-skills-check
 	@$(MAKE) --no-print-directory backlog-snapshot-check
+	@$(MAKE) --no-print-directory release-fold-check
 	@echo "==> go test -race"; go test -race -timeout 5m ./...
 	@$(MAKE) --no-print-directory vuln
 	@echo "check: all local gates passed (mirrors the test CI workflow)"
@@ -152,3 +159,4 @@ help:
 	@echo "  plugin-skills-check  fail if plugin/skills/ is stale (run by make check)"
 	@echo "  backlog-snapshot     regenerate docs/backlog-snapshot.md from the local bd tracker (scrubbed)"
 	@echo "  backlog-snapshot-check  fail if docs/backlog-snapshot.md leaks a scrubbed field (run by CI + make check)"
+	@echo "  release-fold-check   fixture tests for scripts/changelog-fold.py (run by CI + make check)"

@@ -66,11 +66,15 @@ homebrew_casks:
       Install bd separately: https://github.com/gastownhall/beads
     # The binaries are unsigned, so macOS Gatekeeper quarantines them and
     # the first run is blocked. Strip the quarantine attribute on install.
+    # `install_steps` is Homebrew's declarative steps DSL (rendered as
+    # `postflight_steps`); the older free-form `install` hook rendered a
+    # `postflight` block that both goreleaser (since v2.19) and Homebrew
+    # now warn about on every install (would-you-kindly-8w5z).
     hooks:
       post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wyk"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/wyk"]
           end
 
 # goreleaser creates the GitHub release itself; release.yml passes
