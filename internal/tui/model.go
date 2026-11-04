@@ -360,19 +360,20 @@ type Model struct {
 	// launch has it too (would-you-kindly-rqo9).
 	allSnap   []beads.Issue
 	allSnapAt time.Time
-	// supersetFetching is true while the background all-superset
-	// prefetch is in flight; supersetDone records that it has been
-	// dispatched this session (once is enough — every later all
-	// visit or tick keeps presetCache[all] current). The prefetch
-	// goes out after the FIRST successful fetch of a non-all preset,
-	// so a session launched on human can still paint any later
-	// switch instantly instead of blocking on the full multi-repo
-	// fan-out (16-30s on a 30-workspace registry,
-	// would-you-kindly-t5ab). switchPreset reads supersetFetching to
-	// reuse the in-flight prefetch for a switch TO all rather than
-	// dispatching a duplicate fan-out.
-	supersetFetching bool
-	supersetDone     bool
+	// supersetDone records that the background all-superset prefetch
+	// has been dispatched under the current closed-issues scope (once
+	// is enough — every later all visit or tick keeps
+	// presetCache[all] current; toggleShowClosed resets it so the new
+	// scope gets its own). The prefetch goes out after the FIRST
+	// successful fetch of a non-all preset, so a session launched on
+	// human can still paint any later switch instantly instead of
+	// blocking on the full multi-repo fan-out (16-30s on a
+	// 30-workspace registry, would-you-kindly-t5ab). Whether one is
+	// in flight is the fetchController's knowledge (supersetInFlight):
+	// it owns the prefetch's context, so a scope change or a newer
+	// fetch for the all view can cancel it the way any superseded
+	// fetch is cancelled (roborev #6902).
+	supersetDone bool
 	// fetches cancels the previous in-flight fetch whenever a
 	// replacement is dispatched (preset switch, r, a post-write
 	// refetch). Shared by pointer so the cancel survives Bubble
@@ -1032,14 +1033,30 @@ func (m Model) fetchCmd() tea.Cmd {
 }
 
 // supersetCmd is the background prefetch of the all superset
-// (would-you-kindly-t5ab). It deliberately bypasses the
-// fetchController: it must neither cancel the fetch the user is
-// waiting on nor be cancelled by the next tick, since its whole
-// point is to finish once, in the background, so that every later
-// preset switch has a superset to derive from. Its result lands as
-// a background fetchedMsg (see that type).
+// (would-you-kindly-t5ab). It runs under the fetchController's
+// SEPARATE superset context: it must neither cancel the fetch the
+// user is waiting on nor be cancelled by the next tick, since its
+// whole point is to finish once, in the background, so that every
+// later preset switch has a superset to derive from. It IS
+// cancelled when its rows could no longer be trusted — a
+// closed-issues scope change (toggleShowClosed), or, once a switch
+// to all has adopted it as that view's fetch, any newer fetch
+// dispatched for the view (manual r, a post-write refetch) — so a
+// stale result can never land over newer rows (roborev #6902). Its
+// result lands as a background fetchedMsg (see that type).
 func (m Model) supersetCmd() tea.Cmd {
-	return fetchPresetCmd(context.Background(), m.src, filter.PresetAll, true)
+	ctx := context.Background()
+	if m.fetches != nil {
+		ctx = m.fetches.beginSuperset()
+	}
+	return fetchPresetCmd(ctx, m.src, filter.PresetAll, true)
+}
+
+// supersetInFlight reports whether the background all prefetch is
+// still running (and not cancelled). Always false without a
+// controller.
+func (m Model) supersetInFlight() bool {
+	return m.fetches != nil && m.fetches.supersetInFlight()
 }
 
 // fetchPresetCmd is the shared body of fetchCmd and supersetCmd: run
@@ -1071,9 +1088,24 @@ func fetchPresetCmd(ctx context.Context, src Source, preset filter.Preset, backg
 // fetch safe to drop silently: cancel only ever happens because a
 // newer fetch is being dispatched, so there is always one live
 // round-trip to land and clear the refreshing state.
+//
+// The background all-superset prefetch (supersetCmd) has its own
+// slot: it is not superseded by the next primary fetch, because it
+// is meant to finish in the background regardless of what the user
+// does meanwhile. Two things end it early: cancelSuperset (a
+// closed-issues scope change makes its rows wrong), and — once
+// adoptSuperset has made it the all view's own fetch — any later
+// begin, which then supersedes it exactly like a primary fetch
+// (roborev #6902). A cancelled prefetch yields no message, so it
+// can neither refill the preset cache nor overwrite newer rows.
 type fetchController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	// superset is the in-flight prefetch's cancel; nil when none.
+	superset context.CancelFunc
+	// adopted is true once the prefetch stands in for the current
+	// view's fetch, which puts it under begin's supersession.
+	adopted bool
 }
 
 func (f *fetchController) begin() context.Context {
@@ -1082,9 +1114,77 @@ func (f *fetchController) begin() context.Context {
 	if f.cancel != nil {
 		f.cancel()
 	}
+	if f.adopted {
+		f.dropSupersetLocked()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 	return ctx
+}
+
+// beginSuperset cancels any earlier prefetch and hands back the
+// context for a new one.
+func (f *fetchController) beginSuperset() context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dropSupersetLocked()
+	ctx, cancel := context.WithCancel(context.Background())
+	f.superset = cancel
+	return ctx
+}
+
+// adoptSuperset makes the in-flight prefetch the current view's
+// fetch: the primary fetch it replaces is cancelled (its answer is
+// no longer wanted, as with any dispatch), and from here on a newer
+// begin supersedes the prefetch too. Returns false when there is no
+// prefetch to adopt — the caller dispatches normally then.
+func (f *fetchController) adoptSuperset() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.superset == nil {
+		return false
+	}
+	if f.cancel != nil {
+		f.cancel()
+		f.cancel = nil
+	}
+	f.adopted = true
+	return true
+}
+
+// cancelSuperset ends the in-flight prefetch, if any, without
+// touching the primary fetch.
+func (f *fetchController) cancelSuperset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dropSupersetLocked()
+}
+
+// supersetLanded records the prefetch's completion. Returns false
+// when no prefetch was in flight — a result that arrives anyway is
+// stale (cancelled, or from a scope since changed) and must be
+// dropped.
+func (f *fetchController) supersetLanded() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.superset == nil {
+		return false
+	}
+	f.superset, f.adopted = nil, false
+	return true
+}
+
+func (f *fetchController) supersetInFlight() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.superset != nil
+}
+
+func (f *fetchController) dropSupersetLocked() {
+	if f.superset != nil {
+		f.superset()
+	}
+	f.superset, f.adopted = nil, false
 }
 
 func tickCmd(gen int) tea.Cmd {
@@ -1293,7 +1393,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchedMsg:
 		if msg.background {
-			m.supersetFetching = false
+			if m.fetches != nil && !m.fetches.supersetLanded() {
+				// Nothing in flight owns this result: it was
+				// cancelled (scope change, or superseded after a
+				// switch to all adopted it) and must not refill the
+				// cache or overwrite newer rows (roborev #6902).
+				return m, nil
+			}
 			if msg.preset != m.preset {
 				// The all-superset prefetch landed while the user is
 				// still on another view: file it where switchPreset
@@ -1408,7 +1514,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// kept current by its own visits and ticks.
 			if msg.preset != filter.PresetAll && !m.supersetDone {
 				m.supersetDone = true
-				m.supersetFetching = true
 				prefetchCmd = m.supersetCmd()
 			}
 		}

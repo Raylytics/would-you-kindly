@@ -20,14 +20,14 @@ import (
 func TestFirstSubsetFetchArmsSupersetPrefetch(t *testing.T) {
 	src := &stubSource{issues: sampleIssues()}
 	m := New(src).WithPreset(filter.PresetHuman)
-	if m.supersetFetching || m.supersetDone {
+	if m.supersetInFlight() || m.supersetDone {
 		t.Fatal("no prefetch before anything has landed")
 	}
 
 	model, cmd := m.Update(fetchedMsg{preset: filter.PresetHuman, issues: src.issues})
 	m = model.(Model)
-	if !m.supersetFetching || !m.supersetDone {
-		t.Errorf("first human landing should arm the all prefetch; fetching=%v done=%v", m.supersetFetching, m.supersetDone)
+	if !m.supersetInFlight() || !m.supersetDone {
+		t.Errorf("first human landing should arm the all prefetch; fetching=%v done=%v", m.supersetInFlight(), m.supersetDone)
 	}
 	if cmd == nil {
 		t.Error("first human landing should return the prefetch cmd")
@@ -50,12 +50,12 @@ func TestFirstSubsetFetchArmsSupersetPrefetch(t *testing.T) {
 	// whether the prefetch is still in flight or already landed.
 	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: src.issues, background: true})
 	m = model.(Model)
-	if m.supersetFetching {
+	if m.supersetInFlight() {
 		t.Error("landing the prefetch should clear supersetFetching")
 	}
 	model, _ = m.Update(fetchedMsg{preset: filter.PresetHuman, issues: src.issues})
 	m = model.(Model)
-	if m.supersetFetching {
+	if m.supersetInFlight() {
 		t.Error("a second human landing must not re-arm the prefetch")
 	}
 }
@@ -63,8 +63,8 @@ func TestFirstSubsetFetchArmsSupersetPrefetch(t *testing.T) {
 func TestLaunchOnAllNeedsNoPrefetch(t *testing.T) {
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
-	if m.supersetFetching || m.supersetDone {
-		t.Errorf("an all landing IS the superset; no prefetch; fetching=%v done=%v", m.supersetFetching, m.supersetDone)
+	if m.supersetInFlight() || m.supersetDone {
+		t.Errorf("an all landing IS the superset; no prefetch; fetching=%v done=%v", m.supersetInFlight(), m.supersetDone)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestBackgroundSupersetErrorIsDropped(t *testing.T) {
 	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
 	model, _ := m.Update(fetchedMsg{preset: filter.PresetAll, err: errors.New("bd exploded"), background: true})
 	m = model.(Model)
-	if m.supersetFetching {
+	if m.supersetInFlight() {
 		t.Error("a failed prefetch should clear supersetFetching")
 	}
 	if _, ok := m.presetCache[filter.PresetAll]; ok {
@@ -132,7 +132,7 @@ func TestSwitchToAllReusesInFlightPrefetch(t *testing.T) {
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
 	m.width, m.height = 100, 30
-	if !m.supersetFetching {
+	if !m.supersetInFlight() {
 		t.Fatal("setup: prefetch should be in flight after the first human landing")
 	}
 	callsBefore := src.calls
@@ -156,8 +156,8 @@ func TestSwitchToAllReusesInFlightPrefetch(t *testing.T) {
 	superset := manyIssues(4)
 	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: superset, background: true})
 	m = model.(Model)
-	if m.refreshing || m.supersetFetching {
-		t.Errorf("landing should clear refreshing and supersetFetching; got %v / %v", m.refreshing, m.supersetFetching)
+	if m.refreshing || m.supersetInFlight() {
+		t.Errorf("landing should clear refreshing and supersetFetching; got %v / %v", m.refreshing, m.supersetInFlight())
 	}
 	if got := idsOfIssues(m.all); len(got) != 4 || m.rowsPreset != filter.PresetAll {
 		t.Errorf("landing should paint the all rows; got %v (rowsPreset=%s)", got, m.rowsPreset)
@@ -177,7 +177,125 @@ func TestSwitchToSubsetWhilePrefetchInFlightStillFetches(t *testing.T) {
 	if cmd == nil {
 		t.Error("switch to blocked should dispatch its own fetch")
 	}
-	if !m.supersetFetching {
+	if !m.supersetInFlight() {
 		t.Error("the prefetch stays in flight across a subset switch")
+	}
+}
+
+// roborev #6902: the prefetch runs under the controller's own
+// context so a result that can no longer be trusted never lands.
+
+func TestToggleShowClosedCancelsAndRearmsPrefetch(t *testing.T) {
+	src := &stubSource{issues: sampleIssues()}
+	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
+	if !m.supersetInFlight() {
+		t.Fatal("setup: prefetch in flight after the first human landing")
+	}
+
+	model, _ := m.toggleShowClosed()
+	m = model.(Model)
+	if m.supersetInFlight() {
+		t.Error("C must cancel the in-flight prefetch: its rows are the old closed-scope")
+	}
+	if m.supersetDone {
+		t.Error("C must re-arm the prefetch so the new scope gets its own superset")
+	}
+
+	// The old-scope result arrives anyway (a fabricated late landing;
+	// in production the cancelled closure yields nil): dropped.
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: manyIssues(5), background: true})
+	m = model.(Model)
+	if _, ok := m.presetCache[filter.PresetAll]; ok {
+		t.Error("a cancelled prefetch must not refill presetCache[all]")
+	}
+	if len(m.allSnap) != 0 {
+		t.Error("a cancelled prefetch must not become the sidecar")
+	}
+	model, cmd := m.switchPreset(filter.PresetAll)
+	m = model.(Model)
+	if cmd == nil || !m.rowsStale() {
+		t.Error("with no trusted superset, the switch to all must dispatch its own fetch")
+	}
+
+	// The next landing under the new scope arms a fresh prefetch.
+	m = applyFetched(New(src).WithPreset(filter.PresetHuman), src)
+	model, _ = m.toggleShowClosed()
+	m = model.(Model)
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetHuman, issues: src.issues})
+	m = model.(Model)
+	if !m.supersetInFlight() || !m.supersetDone {
+		t.Errorf("the first landing after C should arm a fresh prefetch; inFlight=%v done=%v", m.supersetInFlight(), m.supersetDone)
+	}
+}
+
+func TestAdoptedPrefetchIsSupersededByNewerFetchOnAll(t *testing.T) {
+	src := &stubSource{issues: sampleIssues()}
+	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
+	model, _ := m.switchPreset(filter.PresetAll)
+	m = model.(Model)
+	if !m.supersetInFlight() {
+		t.Fatal("setup: the switch to all should have adopted the prefetch")
+	}
+
+	// A manual r on all dispatches a fresh fetch: the adopted
+	// prefetch is now the older answer and must be superseded.
+	model, cmd := m.manualRefresh()
+	m = model.(Model)
+	if cmd == nil {
+		t.Fatal("manual refresh should dispatch a fetch")
+	}
+	if m.supersetInFlight() {
+		t.Error("a newer fetch for the all view must supersede the adopted prefetch")
+	}
+	rowsBefore := len(m.all)
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: manyIssues(7), background: true})
+	m = model.(Model)
+	if len(m.all) != rowsBefore || !m.refreshing {
+		t.Errorf("the superseded prefetch must not land over the newer fetch; rows %d→%d refreshing=%v", rowsBefore, len(m.all), m.refreshing)
+	}
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: manyIssues(2)})
+	m = model.(Model)
+	if len(m.all) != 2 || m.refreshing {
+		t.Errorf("the newer fetch lands normally; rows=%d refreshing=%v", len(m.all), m.refreshing)
+	}
+}
+
+func TestFetchControllerSupersetContexts(t *testing.T) {
+	f := &fetchController{}
+	// Not adopted: a primary begin leaves the prefetch alone.
+	sctx := f.beginSuperset()
+	_ = f.begin()
+	if sctx.Err() != nil {
+		t.Fatal("an unadopted prefetch must survive a primary dispatch")
+	}
+	// Adopted: the next begin cancels it and the slot empties.
+	pctx := f.begin()
+	if !f.adoptSuperset() {
+		t.Fatal("adopt should succeed while the prefetch is in flight")
+	}
+	if pctx.Err() == nil {
+		t.Error("adopting should cancel the primary fetch it replaces")
+	}
+	_ = f.begin()
+	if sctx.Err() == nil || f.supersetInFlight() {
+		t.Error("a begin after adoption must cancel the prefetch")
+	}
+	if f.adoptSuperset() {
+		t.Error("nothing left to adopt")
+	}
+	if f.supersetLanded() {
+		t.Error("a landing after cancellation is stale")
+	}
+	// cancelSuperset ends it without touching the primary.
+	sctx = f.beginSuperset()
+	pctx = f.begin()
+	f.cancelSuperset()
+	if sctx.Err() == nil || pctx.Err() != nil {
+		t.Error("cancelSuperset should cancel only the prefetch")
+	}
+	// A normal landing empties the slot exactly once.
+	_ = f.beginSuperset()
+	if !f.supersetLanded() || f.supersetLanded() {
+		t.Error("supersetLanded should report true once, then false")
 	}
 }

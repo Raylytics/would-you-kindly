@@ -249,13 +249,14 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.refreshing = true
-	if p == filter.PresetAll && m.supersetFetching {
+	if p == filter.PresetAll && m.fetches != nil && m.fetches.adoptSuperset() {
 		// The background all prefetch is already running the exact
-		// fan-out this switch would dispatch; let it land as this
-		// view's fetch (its background fetchedMsg takes the normal
-		// landing path once m.preset is all) instead of piling a
-		// duplicate 30-repo fan-out onto the same Dolt engines
-		// (would-you-kindly-t5ab).
+		// fan-out this switch would dispatch; adopt it as this view's
+		// fetch (its background fetchedMsg takes the normal landing
+		// path once m.preset is all) instead of piling a duplicate
+		// 30-repo fan-out onto the same Dolt engines
+		// (would-you-kindly-t5ab). Adopted, it is superseded by any
+		// newer fetch for the view like a primary one would be.
 		return m, nil
 	}
 	return m, m.fetchCmd()
@@ -556,6 +557,15 @@ func (m Model) toggleShowClosed() (tea.Model, tea.Cmd) {
 	// present/absent) on the next switch. Drop them; they repopulate
 	// from fresh fetches.
 	m.presetCache = nil
+	// Same for the background all prefetch, if one is in flight: its
+	// rows are the OLD scope too, and left running it would refill
+	// presetCache[all] and the sidecar with them after the drop
+	// above (roborev #6902). Cancel it and let the next landing
+	// under the new scope arm a fresh one.
+	if m.fetches != nil {
+		m.fetches.cancelSuperset()
+	}
+	m.supersetDone = false
 	m.cursor = 0
 	m.refreshing = true
 	return m, m.fetchCmd()
