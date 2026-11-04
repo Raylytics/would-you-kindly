@@ -191,7 +191,9 @@ proves the Homebrew tap token can read and push to the tap, then cuts the
 GitHub release from that `CHANGELOG.md` section (goreleaser attaches the
 binaries and bumps the tap), and `wyk update` finds it via the GitHub releases
 API. Recovery for a release that published but did not reach the tap is in
-`docs/OPERATOR.md` under Releasing.
+`docs/OPERATOR.md` under Releasing. A local `goreleaser check` needs
+goreleaser v2.19 or newer (the cask hook uses `install_steps`); CI tracks the
+latest v2.
 
 ### Versioning (pre-1.0)
 

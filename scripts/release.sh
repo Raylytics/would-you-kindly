@@ -196,6 +196,14 @@ changelog_section() { # file version -> prints the new section
   awk -v hdr="## [$2]" 'index($0, hdr) == 1 { grab = 1 } grab && /^## \[/ && index($0, hdr) != 1 { exit } grab' "$1"
 }
 
+# An empty section means no Conventional Commit of a changelog-worthy type
+# (feat/fix/perf/refactor/revert, see cliff.toml) since the last tag: there is
+# nothing to release, and tagging anyway would publish release notes that say
+# so.
+require_release_content() { # file version
+  changelog_section "$1" "$2" | grep -q '^### ' || die "no changelog entries since the last tag — nothing to release (only docs/ci/chore/test commits, or none)"
+}
+
 if [ "${RELEASE_DRY_RUN:-0}" = 1 ]; then
   tmp="$(mktemp -t CHANGELOG.XXXXXX)"
   trap 'rm -f "$tmp"' EXIT
@@ -208,6 +216,7 @@ if [ "${RELEASE_DRY_RUN:-0}" = 1 ]; then
   fi
   echo "== dry run: CHANGELOG.md section that would be committed"
   changelog_section "$tmp" "$VERSION"
+  require_release_content "$tmp" "$VERSION"
   echo "== dry run: would commit chore(release): $TAG on $BRANCH, open its PR with squash auto-merge, then tag the merge commit $TAG and push the tag"
   git checkout -q -- . 2>/dev/null || true
   exit 0
@@ -219,6 +228,7 @@ if [ -f CHANGELOG.md ]; then
 else
   git cliff --tag "$TAG" > CHANGELOG.md
 fi
+require_release_content CHANGELOG.md "$VERSION" || { git checkout -q -- CHANGELOG.md; exit 1; }
 echo "CHANGELOG.md: $TAG entry written"
 
 # ---- 4. release PR, then tag the merge commit --------------------------------
