@@ -138,58 +138,14 @@ case "$STACK" in
 esac
 
 # ---- 3. changelog -----------------------------------------------------------
-# fold_changelog: `git cliff --prepend` writes its header and the new section
-# above the OLD file, so the old header is duplicated and a hand-written
-# "## [Unreleased]" section (with its "### Group" bullets) ends up below the
-# new "## [X.Y.Z]" header. Drop the duplicate header, merge the Unreleased
-# groups into the new section (same group -> appended; new group -> added),
-# and keep the link references at the bottom of the file where Keep a
-# Changelog puts them.
+# `git cliff --prepend` writes its header and the new section above the OLD
+# file, duplicating the header and stranding any hand-written
+# "## [Unreleased]" notes below the new release. scripts/changelog-fold.py
+# (tested by `make release-fold-check`) repairs that: duplicate header
+# dropped, Unreleased prose and groups merged into the new section, link
+# references kept at the bottom.
 fold_changelog() { # file version
-  python3 - "$1" "$2" <<'PY'
-import re, sys
-path, ver = sys.argv[1], sys.argv[2]
-s = open(path).read()
-hdr = re.compile(r"^## \[", re.M)
-new_sec = re.search(r"^## \[%s\][^\n]*\n" % re.escape(ver), s, re.M)
-if not new_sec:
-    sys.exit("fold_changelog: no '## [%s]' section" % ver)
-nxt = hdr.search(s, new_sec.end())
-if not nxt:
-    sys.exit(0)  # first release: nothing below the new section
-section, rest = s[new_sec.end():nxt.start()], s[nxt.start():]
-# The generated section ends with its own link line; whatever follows it up to
-# the next "## [" is the old file's header text — drop it.
-link = re.search(r"^\[%s\]: [^\n]+\n" % re.escape(ver), section, re.M)
-linkline = ""
-if link:
-    linkline, section = link.group(0), section[:link.start()]
-m_unr = re.match(r"## \[Unreleased\][^\n]*\n", rest)
-if m_unr:
-    end = hdr.search(rest, m_unr.end())
-    body = rest[m_unr.end():end.start() if end else len(rest)]
-    rest = rest[end.start():] if end else ""
-    for g in re.split(r"^### ", body, flags=re.M)[1:]:
-        name, _, items = g.partition("\n")
-        name, items = name.strip(), items.strip("\n")
-        if not items:
-            continue
-        gm = re.search(r"^### %s[ \t]*\n" % re.escape(name), section, re.M)
-        if gm:
-            gnext = re.search(r"^### ", section[gm.end():], re.M)
-            at = gm.end() + gnext.start() if gnext else len(section)
-            section = section[:at].rstrip("\n") + "\n" + items + "\n\n" + section[at:]
-        else:
-            section = section.rstrip("\n") + "\n\n### " + name + "\n\n" + items + "\n\n"
-out = s[:new_sec.end()] + section.rstrip("\n") + "\n\n" + rest
-if linkline:
-    unr = re.search(r"^\[Unreleased\]: (\S+)/compare/\S+\.\.\.HEAD[ \t]*\n", out, re.M)
-    if unr:
-        out = out[:unr.start()] + "[Unreleased]: %s/compare/v%s...HEAD\n" % (unr.group(1), ver) + linkline + out[unr.end():]
-    else:
-        out = out.rstrip("\n") + "\n" + linkline
-open(path, "w").write(out)
-PY
+  python3 "$(dirname "$0")/changelog-fold.py" "$1" "$2"
 }
 
 changelog_section() { # file version -> prints the new section
@@ -199,39 +155,55 @@ changelog_section() { # file version -> prints the new section
 # An empty section means no Conventional Commit of a changelog-worthy type
 # (feat/fix/perf/refactor/revert, see cliff.toml) since the last tag: there is
 # nothing to release, and tagging anyway would publish release notes that say
-# so.
-require_release_content() { # file version
-  changelog_section "$1" "$2" | grep -q '^### ' || die "no changelog entries since the last tag — nothing to release (only docs/ci/chore/test commits, or none)"
+# so. Returns non-zero (never exits) so the caller can restore the tree first.
+# The section is captured before grep looks at it: with pipefail, a `grep -q`
+# that stops at the first match would SIGPIPE awk on a long section and turn
+# a real release into a false "nothing to release".
+has_release_content() { # file version
+  local sec
+  sec="$(changelog_section "$1" "$2")"
+  grep '^### ' >/dev/null <<<"$sec"
 }
+NO_CONTENT_MSG="no changelog entries since the last tag — nothing to release (only docs/ci/chore/test commits, or none)"
 
 if [ "${RELEASE_DRY_RUN:-0}" = 1 ]; then
   tmp="$(mktemp -t CHANGELOG.XXXXXX)"
   trap 'rm -f "$tmp"' EXIT
+  # Step 2 may have bumped version files (non-go stacks); a dry run promises
+  # to touch nothing, so restore the tree on every exit path from here on.
+  trap 'rm -f "$tmp"; git checkout -q -- . 2>/dev/null || true' EXIT
   if [ -f CHANGELOG.md ]; then
     cp CHANGELOG.md "$tmp"
-    git cliff --tag "$TAG" --unreleased --prepend "$tmp" >/dev/null 2>&1
+    git cliff --tag "$TAG" --unreleased --prepend "$tmp" >/dev/null || die "git-cliff failed"
     fold_changelog "$tmp" "$VERSION"
   else
-    git cliff --tag "$TAG" > "$tmp" 2>/dev/null
+    git cliff --tag "$TAG" > "$tmp" || die "git-cliff failed"
   fi
   echo "== dry run: CHANGELOG.md section that would be committed"
   changelog_section "$tmp" "$VERSION"
-  require_release_content "$tmp" "$VERSION"
+  has_release_content "$tmp" "$VERSION" || die "$NO_CONTENT_MSG"
   echo "== dry run: would commit chore(release): $TAG on $BRANCH, open its PR with squash auto-merge, then tag the merge commit $TAG and push the tag"
-  git checkout -q -- . 2>/dev/null || true
   exit 0
 fi
 
 if [ -f CHANGELOG.md ]; then
-  git cliff --tag "$TAG" --unreleased --prepend CHANGELOG.md
+  git cliff --tag "$TAG" --unreleased --prepend CHANGELOG.md || die "git-cliff failed"
   fold_changelog CHANGELOG.md "$VERSION"
 else
-  git cliff --tag "$TAG" > CHANGELOG.md
+  git cliff --tag "$TAG" > CHANGELOG.md || die "git-cliff failed"
 fi
-require_release_content CHANGELOG.md "$VERSION" || { git checkout -q -- CHANGELOG.md; exit 1; }
+# Restore the bump and the changelog before refusing, or the next run stops
+# at "working tree not clean".
+has_release_content CHANGELOG.md "$VERSION" || { git checkout -q -- .; die "$NO_CONTENT_MSG"; }
 echo "CHANGELOG.md: $TAG entry written"
 
 # ---- 4. release PR, then tag the merge commit --------------------------------
+# The changelog was generated from THIS commit. If anything else lands on
+# main before the release PR merges, the squash commit (and the tag) would
+# contain changes the vX.Y.Z section never mentions — and the next release's
+# `git cliff --unreleased` starts after the tag, so they would be missing for
+# good. The merge commit's parent must therefore be the base recorded here.
+base="$(git rev-parse HEAD)"
 git checkout -q -b "$BRANCH"
 git add -A
 git commit -q -m "chore(release): $TAG" -m "Source: VC Standard §7"
@@ -252,6 +224,9 @@ done
 merged="$(gh pr view "$pr_url" --json mergeCommit --jq .mergeCommit.oid)"
 git checkout -q main
 git pull -q --ff-only origin main
+if [ "$(git rev-parse "$merged^")" != "$base" ]; then
+  die "main moved between generating the changelog (${base:0:7}) and merging the release PR (${merged:0:7} is on top of $(git rev-parse --short "$merged^")). NOT tagging: the $VERSION section would omit those commits. Regenerate: revert the release commit with a PR (or bump to the next patch) and run $0 again."
+fi
 [ "$(git rev-parse HEAD)" = "$merged" ] || echo "note: main moved past the release commit (${merged:0:7}); tagging that commit, not HEAD"
 git tag -s -a "$TAG" -m "$TAG" "$merged"
 git push origin "$TAG"
