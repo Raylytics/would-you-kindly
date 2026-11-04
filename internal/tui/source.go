@@ -16,6 +16,7 @@ import (
 
 	"github.com/jimbottle/would-you-kindly/internal/beads"
 	"github.com/jimbottle/would-you-kindly/internal/filter"
+	"github.com/jimbottle/would-you-kindly/internal/workspace"
 )
 
 // BDSource is a single-repo Source backed by the bd CLI. It centralises
@@ -740,6 +741,48 @@ type MultiBDSource struct {
 	// missed mtime signal.
 	cacheMu sync.Mutex
 	cache   map[subCacheKey]subCacheEntry
+
+	// Per-preset fan-out progress for the TUI's loading band
+	// (would-you-kindly-ocgy): how many subs have settled (cache hit,
+	// result, or error) out of how many this fetch covers. Keyed by
+	// preset because the background all-superset prefetch runs
+	// concurrently with the current view's ticks; the model asks for
+	// the preset it is showing. Read from the UI goroutine while the
+	// fan-out writes it, hence the mutex.
+	progMu   sync.Mutex
+	progress map[filter.Preset]fetchProgress
+}
+
+// fetchProgress is one in-flight (or just-finished) fan-out's tally.
+type fetchProgress struct {
+	done, total int
+}
+
+// FetchProgress reports how far the most recent fan-out for p has got:
+// done subs out of total. total == 0 means no fetch for p has started.
+// Satisfies the model's optional progress interface.
+func (m *MultiBDSource) FetchProgress(p filter.Preset) (done, total int) {
+	m.progMu.Lock()
+	defer m.progMu.Unlock()
+	fp := m.progress[p]
+	return fp.done, fp.total
+}
+
+func (m *MultiBDSource) progressStart(p filter.Preset, total int) {
+	m.progMu.Lock()
+	defer m.progMu.Unlock()
+	if m.progress == nil {
+		m.progress = make(map[filter.Preset]fetchProgress)
+	}
+	m.progress[p] = fetchProgress{total: total}
+}
+
+func (m *MultiBDSource) progressStep(p filter.Preset) {
+	m.progMu.Lock()
+	defer m.progMu.Unlock()
+	fp := m.progress[p]
+	fp.done++
+	m.progress[p] = fp
 }
 
 // subCacheKey addresses one repo's cached result for one preset.
@@ -948,11 +991,31 @@ func (m *MultiBDSource) FetchWithSubErrors(ctx context.Context, p filter.Preset)
 	// canceled fetch still unwinds promptly.
 	fetchSem := make(chan struct{}, fetchConcurrency)
 
+	m.progressStart(p, len(m.subs))
 	var wg sync.WaitGroup
 	for i, sub := range m.subs {
 		wg.Add(1)
 		go func(i int, sub subRepo) {
 			defer wg.Done()
+			defer m.progressStep(p)
+			// A workspace whose metadata.json is missing or names a
+			// database that isn't on disk makes bd open an EMPTY default
+			// database and answer "no issues" without failing — so the
+			// repo silently contributes zero rows while its real data
+			// sits in .beads/embeddeddolt/<name> (would-you-kindly-dcby).
+			// Report that as this sub's error instead of asking bd: the
+			// banner then names the repo and points at wyk doctor. Also
+			// skips the subprocess, which in that degraded state bumps
+			// the .beads mtime on every read and defeated the cache
+			// below (would-you-kindly-o9gq). Re-checked every refresh
+			// (two stats and a readdir) so restoring the file heals the
+			// view on the next tick.
+			if sub.path != "" {
+				if mm := workspace.Check(sub.path); mm != nil {
+					results[i] = result{err: mm}
+					return
+				}
+			}
 			// Resolve this workspace's real bd prefix alongside its
 			// fetch. Memoized, so only the first refresh pays — but it
 			// IS a cold bd subprocess, so it takes a fetchSem slot like

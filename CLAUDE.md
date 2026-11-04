@@ -7,7 +7,10 @@ for the full command reference, session-close protocol, and persistent
 memories. (The SessionStart/PreCompact hooks in `.claude/settings.json` load it
 automatically.) Use `bd` for all task tracking (not TodoWrite/markdown TODOs)
 and `bd remember` for persistent notes (not MEMORY.md). The wyk-specific
-conventions below are the delta on top of that.
+conventions below are the delta on top of that. If `bd list` here
+warns `no beads configuration found` or shows no issues, the working
+tree lost `.beads/metadata.json`: run `wyk doctor` and paste its
+restore command rather than trusting the empty result.
 
 > ## Owner column: HUMAN / AGENT / HUMAN-BLOCK / AGENT-HANDOFF
 > The TUI **owner column** shows whose move it is, driven by labels (NOT
@@ -40,7 +43,10 @@ make check                    # the full local gate — run this before pushing
 `go vet`, **golangci-lint**, build, `test -race`, **govulncheck**) plus
 the plugin-skills drift guard, so a green `make check` means a green
 push — provided your golangci-lint matches CI's pinned version (`make
-lint` warns if it doesn't). It exists because
+lint` warns if it doesn't). The Makefile exports `GOTOOLCHAIN` from
+go.mod, so a newer Go on PATH (Homebrew) no longer breaks lint with
+export-data or 'requires newer Go version' errors; set `GOTOOLCHAIN`
+yourself only to override it. It exists because
 the linter gate (golangci-lint / staticcheck) used to run only in CI — a
 red `test` workflow shipped unnoticed for a long time because local runs
 skipped it. Don't push on a bare `go test`; run `make check`.

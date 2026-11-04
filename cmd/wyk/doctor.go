@@ -25,6 +25,7 @@ import (
 	"github.com/jimbottle/would-you-kindly/internal/sanitize"
 	"github.com/jimbottle/would-you-kindly/internal/skills"
 	"github.com/jimbottle/would-you-kindly/internal/uiconfig"
+	"github.com/jimbottle/would-you-kindly/internal/workspace"
 	"github.com/jimbottle/would-you-kindly/internal/wykconfig"
 )
 
@@ -1147,6 +1148,73 @@ func capIDs(ids []string) string {
 	return strings.Join(ids[:max], ", ") + fmt.Sprintf(", +%d more", len(ids)-max)
 }
 
+// lastTrackedCommit returns the newest commit in repoPath whose tree
+// held rel, or "" when git has no record of it. Used to turn the
+// metadata.json restore hint into a copy-pasteable command. Swappable
+// so tests don't need a git history.
+var lastTrackedCommit = func(repoPath, rel string) string {
+	out, err := exec.Command("git", "-C", repoPath, "log", "-1", "--format=%H", "--", rel).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// checkBeadsDatabase reports whether bd will open the database this
+// workspace's data is actually in. When .beads/metadata.json is
+// missing (or names a database that isn't on disk) while
+// .beads/embeddeddolt holds a real one, bd warns once, falls back to
+// an empty default database and `bd list` answers "No issues found" —
+// which is what every clone hit after `.beads/` stopped being tracked
+// and git removed the two config files from the working tree
+// (would-you-kindly-dcby). ok=false means there is nothing to say:
+// no embedded databases (JSONL-only / remote Dolt) or only the
+// default one, where bd's fallback is already right.
+func checkBeadsDatabase(prefix, repoPath string) (check, bool) {
+	state, err := workspace.Inspect(repoPath)
+	if err != nil || len(state.Databases) == 0 {
+		return check{}, false
+	}
+	name := prefix + ": bd opens the workspace's database"
+	mm := state.Mismatch()
+	if mm == nil {
+		if state.Configured == "" {
+			// Only the default database exists and nothing names it:
+			// bd lands on the right one, but it is running without its
+			// config files.
+			return check{name: name, status: statusWarn, detail: "no .beads/metadata.json; bd is using its default database — re-run `bd init` here to write the config files"}, true
+		}
+		return check{name: name, status: statusPass, detail: ".beads/embeddeddolt/" + state.Configured}, true
+	}
+	target := mm.Candidates[0]
+	fix := "git -C " + repoPath + " log -1 --format=%H -- .beads/metadata.json  # find the last commit that tracked it, then git show <sha>:.beads/metadata.json > .beads/metadata.json"
+	if sha := lastTrackedCommit(repoPath, ".beads/metadata.json"); sha != "" {
+		fix = fmt.Sprintf("(cd %s && git show %s:.beads/metadata.json > .beads/metadata.json", repoPath, short(sha))
+		// config.yaml went the same way in the untracking commit;
+		// restore it too when history has it (bd runs without it,
+		// but sync.remote and the other settings live there).
+		if csha := lastTrackedCommit(repoPath, ".beads/config.yaml"); csha != "" {
+			fix += fmt.Sprintf(" && git show %s:.beads/config.yaml > .beads/config.yaml", short(csha))
+		}
+		fix += ")"
+	} else if len(mm.Candidates) == 1 {
+		fix = fmt.Sprintf("printf '%%s\n' '%s' > %s/.beads/metadata.json", workspace.MinimalMetadata(target), repoPath)
+	}
+	return check{
+		name:   name,
+		status: statusFail,
+		detail: mm.Error() + ". bd list here returns no issues while the real tracker sits untouched. Restore the file: " + fix,
+	}, true
+}
+
+// short abbreviates a full git sha for a copy-pasteable command.
+func short(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
 func checkRepo(r registry.Repo) []check {
 	prefix := "repo " + r.Name
 	var out []check
@@ -1176,6 +1244,9 @@ func checkRepo(r registry.Repo) []check {
 		})
 	} else {
 		out = append(out, check{name: prefix + ": .beads/ present", status: statusPass})
+		if c, ok := checkBeadsDatabase(prefix, r.Path); ok {
+			out = append(out, c)
+		}
 
 		// Separate check: does bd actually respond? Bounded by a
 		// timeout so a broken/locked workspace doesn't hang the whole

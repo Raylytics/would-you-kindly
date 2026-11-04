@@ -139,7 +139,7 @@ func TestSwitchToAllReusesInFlightPrefetch(t *testing.T) {
 
 	model, cmd := m.switchPreset(filter.PresetAll)
 	m = model.(Model)
-	if cmd != nil {
+	if _, fetched := fetchedFrom(cmd); fetched {
 		t.Error("switch to all while the prefetch is in flight must not dispatch a duplicate fan-out")
 	}
 	if src.calls != callsBefore {

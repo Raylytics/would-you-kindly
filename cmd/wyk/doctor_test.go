@@ -1282,3 +1282,90 @@ func TestHookProgram(t *testing.T) {
 		}
 	}
 }
+
+// beadsWithDolt lays out <repo>/.beads/embeddeddolt/<dbs...> and, when
+// metadata != "", writes it as .beads/metadata.json.
+func beadsWithDolt(t *testing.T, repo registry.Repo, metadata string, dbs ...string) {
+	t.Helper()
+	for _, db := range dbs {
+		if err := os.MkdirAll(filepath.Join(repo.Path, ".beads", "embeddeddolt", db), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if metadata != "" {
+		if err := os.WriteFile(filepath.Join(repo.Path, ".beads", "metadata.json"), []byte(metadata), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCheckBeadsDatabase_MissingMetadataFailsWithRestoreCommand(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	beadsWithDolt(t, r, "", "beads", "my_repo")
+	orig := lastTrackedCommit
+	lastTrackedCommit = func(string, string) string { return "0123456789abcdef0123456789abcdef01234567" }
+	t.Cleanup(func() { lastTrackedCommit = orig })
+
+	c, ok := checkBeadsDatabase("repo x", r.Path)
+	if !ok || c.status != statusFail {
+		t.Fatalf("expected a FAIL row, got ok=%v %+v", ok, c)
+	}
+	for _, want := range []string{"embeddeddolt/my_repo", "git show 0123456789ab:.beads/metadata.json", "git show 0123456789ab:.beads/config.yaml"} {
+		if !strings.Contains(c.detail, want) {
+			t.Errorf("detail %q lacks %q", c.detail, want)
+		}
+	}
+}
+
+func TestCheckBeadsDatabase_NoHistoryFallsBackToMinimalMetadata(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	beadsWithDolt(t, r, "", "my_repo")
+	orig := lastTrackedCommit
+	lastTrackedCommit = func(string, string) string { return "" }
+	t.Cleanup(func() { lastTrackedCommit = orig })
+
+	c, ok := checkBeadsDatabase("repo x", r.Path)
+	if !ok || c.status != statusFail {
+		t.Fatalf("expected a FAIL row, got ok=%v %+v", ok, c)
+	}
+	if !strings.Contains(c.detail, `"dolt_database":"my_repo"`) || !strings.Contains(c.detail, "> "+r.Path+"/.beads/metadata.json") {
+		t.Errorf("detail should offer a hand-written metadata.json; got %q", c.detail)
+	}
+}
+
+func TestCheckBeadsDatabase_HealthyPasses(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	beadsWithDolt(t, r, `{"dolt_database":"my_repo"}`, "beads", "my_repo")
+	c, ok := checkBeadsDatabase("repo x", r.Path)
+	if !ok || c.status != statusPass || !strings.Contains(c.detail, "my_repo") {
+		t.Errorf("expected PASS naming my_repo, got ok=%v %+v", ok, c)
+	}
+}
+
+func TestCheckBeadsDatabase_DefaultOnlyWarns(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	beadsWithDolt(t, r, "", "beads")
+	c, ok := checkBeadsDatabase("repo x", r.Path)
+	if !ok || c.status != statusWarn {
+		t.Errorf("default-only workspace without metadata should WARN, got ok=%v %+v", ok, c)
+	}
+}
+
+func TestCheckBeadsDatabase_NoEmbeddedDoltIsSilent(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	if _, ok := checkBeadsDatabase("repo x", r.Path); ok {
+		t.Error("a workspace without embeddeddolt has nothing to report")
+	}
+}
+
+func TestCheckRepo_EmitsDatabaseRowAfterBeads(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	beadsWithDolt(t, r, "", "my_repo")
+	orig := lastTrackedCommit
+	lastTrackedCommit = func(string, string) string { return "" }
+	t.Cleanup(func() { lastTrackedCommit = orig })
+	c, ok := checkNamed(checkRepo(r), "bd opens the workspace's database")
+	if !ok || c.status != statusFail {
+		t.Errorf("checkRepo should carry the database FAIL row; got ok=%v %+v", ok, c)
+	}
+}

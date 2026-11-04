@@ -339,7 +339,7 @@ func (m Model) listTopChrome() string {
 	// let a 30s multi-repo round-trip read as "Tab does nothing"
 	// (would-you-kindly-ubhs).
 	if m.rowsStale() {
-		b.WriteString(renderStaleRowsBand(m.preset, m.rowsPreset, m.width))
+		b.WriteString(renderStaleRowsBand(m.preset, m.rowsPreset, m.refreshProgress(), m.width))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
@@ -347,10 +347,17 @@ func (m Model) listTopChrome() string {
 }
 
 // renderStaleRowsBand is the centered "loading <preset>…" line shown
-// above the table while its rows still belong to prevPreset. Width 0
-// (unsized model) leaves the text unpadded.
-func renderStaleRowsBand(want, have filter.Preset, width int) string {
-	text := staleRowsStyle.Render(fmt.Sprintf("↻ loading %s… — rows below are still the [%s] view", want, have))
+// above the table while its rows still belong to prevPreset. progress
+// is the fan-out readout ("12/29 repos · 18s", see refreshProgress)
+// and may be empty; with it a 30s multi-repo round-trip reads as a
+// fetch making progress rather than a hang (would-you-kindly-ocgy).
+// Width 0 (unsized model) leaves the text unpadded.
+func renderStaleRowsBand(want, have filter.Preset, progress string, width int) string {
+	msg := fmt.Sprintf("↻ loading %s…", want)
+	if progress != "" {
+		msg += " " + progress
+	}
+	text := staleRowsStyle.Render(fmt.Sprintf("%s — rows below are still the [%s] view", msg, have))
 	if width <= 0 {
 		return text
 	}
@@ -1319,6 +1326,9 @@ func (m Model) statusBar() string {
 	}
 	if m.refreshing {
 		left += "  ↻ refreshing"
+		if prog := m.refreshProgress(); prog != "" {
+			left += " " + prog
+		}
 	}
 	// The "(read-only)" note rides on the info line (footerBindings drops
 	// the write keys when there's no Mutator).

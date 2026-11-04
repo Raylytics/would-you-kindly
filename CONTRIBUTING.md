@@ -37,6 +37,13 @@ go build -o ./bin/wyk ./cmd/wyk
 ./bin/wyk --version
 ```
 
+If `bd list` in your clone says `no beads configuration found` or
+returns no issues, your working tree lost `.beads/metadata.json` and
+`.beads/config.yaml` when the repo stopped tracking `.beads/` (they are
+gitignored now). `wyk doctor` fails the repo with the exact `git show`
+command that restores both files from history; bd then opens the real
+database again.
+
 ## Tests
 
 The one command that matters:
@@ -49,9 +56,12 @@ It mirrors the `test` CI workflow exactly — gofmt, the generated-docs
 drift check, `go vet`, golangci-lint at CI's pinned version, build,
 `go test -race`, and govulncheck at CI's pinned version — plus the
 plugin-skills drift guard. A green `make check` is a green push.
-go.mod names the exact Go patch release, so `GOTOOLCHAIN=auto` fetches
-the same patched standard library CI scans; bump it when govulncheck
-reports a stdlib fix. The individual pieces, when you want one à la
+go.mod names the exact Go patch release and the Makefile exports it as
+`GOTOOLCHAIN` for every target, so `make check` compiles, lints and
+scans with the same toolchain CI installs even when the `go` on PATH is
+newer (a Homebrew Go 1.27 broke golangci-lint built for 1.26 with
+export-data errors). Bump go.mod when govulncheck reports a stdlib fix;
+set `GOTOOLCHAIN` in the environment only to override. The individual pieces, when you want one à la
 carte:
 
 ```bash

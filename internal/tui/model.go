@@ -9,6 +9,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -308,6 +309,11 @@ type Model struct {
 	// status bar so the existing rows stay on screen during the
 	// round-trip. Cleared on fetchedMsg arrival.
 	refreshing bool
+	// refreshStarted is when the in-flight refresh was dispatched; the
+	// loading band and status bar show the elapsed time from it so a
+	// slow multi-repo fan-out reads as progress, not a hang
+	// (would-you-kindly-ocgy). Zero when nothing is in flight.
+	refreshStarted time.Time
 
 	// updateNudge is a one-line "↑ wyk vX.Y.Z available — run
 	// `wyk update`" message read from the updater cache at start-
@@ -1453,6 +1459,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		recovered := isTerminalErr(m.lastErr) && !isTerminalErr(msg.err)
 		m.loading = false
 		m.refreshing = false
+		m.refreshStarted = time.Time{}
 		m.lastSync = time.Now()
 		m.lastErr = msg.err
 		var cacheCmd, depsCmd, prefetchCmd tea.Cmd
@@ -1570,8 +1577,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading || m.refreshing {
 			return m, tickCmd(m.tickGen)
 		}
-		m.refreshing = true
-		return m, tea.Batch(m.fetchCmd(), tickCmd(m.tickGen))
+		m.beginRefresh()
+		return m, tea.Batch(m.fetchCmd(), tickCmd(m.tickGen), m.spinner.Tick)
 
 	case fsEventMsg:
 		// External bd write — refetch AND re-arm the watcher wait so
@@ -1608,8 +1615,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.lastSync.IsZero() && time.Since(m.lastSync) < minFSRefreshGap {
 			return m, waitFSEvent(m.fsEvents)
 		}
-		m.refreshing = true
-		return m, tea.Batch(m.fetchCmd(), waitFSEvent(m.fsEvents))
+		m.beginRefresh()
+		return m, tea.Batch(m.fetchCmd(), waitFSEvent(m.fsEvents), m.spinner.Tick)
 
 	case writeMsg:
 		return m.handleWriteResult(msg)
@@ -1672,10 +1679,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, flashClearCmd(m.statusGen)
 
 	case spinner.TickMsg:
-		// Animate the loading indicator. Only re-tick while we're
-		// actually showing it (the first paint, before data lands)
-		// to avoid burning CPU on every other view.
-		if m.loading {
+		// Animate the loading indicator. Only re-tick while something
+		// is in flight — the first paint, or a refresh whose elapsed
+		// time / repo tally the band and status bar are showing
+		// (would-you-kindly-ocgy) — to avoid burning CPU on every other
+		// view. fetchedMsg clears both flags, so the chain retires on
+		// its own.
+		if m.loading || m.refreshing {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -2097,19 +2107,58 @@ func issueKey(i beads.Issue) string {
 // with "loading…" on every keypress produced a jarring
 // full-canvas blank.
 func (m Model) manualRefresh() (tea.Model, tea.Cmd) {
-	m.refreshing = true
+	m.beginRefresh()
 	// `r` is the user's "I want fresh data NOW" escape hatch — drop any
 	// per-repo fetch cache so every repo is re-queried live, even if its
 	// .beads mtime looks unchanged (would-you-kindly-jipr).
 	if ci, ok := m.src.(cacheInvalidator); ok {
 		ci.InvalidateCache()
 	}
-	cmds := []tea.Cmd{m.fetchCmd()}
+	cmds := []tea.Cmd{m.fetchCmd(), m.spinner.Tick}
 	if isTerminalErr(m.lastErr) {
 		m.tickGen++
 		cmds = append(cmds, tickCmd(m.tickGen))
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// beginRefresh marks a fetch for the current view as in flight and
+// stamps when it started. Every dispatch site goes through it so the
+// elapsed-time readout (would-you-kindly-ocgy) measures the whole
+// round-trip; the callers also batch m.spinner.Tick so the band and
+// status bar re-render while the fetch runs (see the spinner.TickMsg
+// handler — the spinner's tag check dedups overlapping chains).
+func (m *Model) beginRefresh() {
+	m.refreshing = true
+	m.refreshStarted = time.Now()
+}
+
+// fetchProgresser is the optional interface a Source implements to
+// report how far the fan-out for a preset has got. MultiBDSource does;
+// a single-repo source has nothing to count.
+type fetchProgresser interface {
+	FetchProgress(p filter.Preset) (done, total int)
+}
+
+// refreshProgress is the "12/29 repos · 18s" readout for the in-flight
+// refresh, or "" when nothing is in flight or nothing is worth saying
+// yet. The repo tally needs a fetchProgresser; the elapsed time appears
+// once the fetch has run a full second, so a fast refresh never flashes
+// "0s" (would-you-kindly-ocgy).
+func (m Model) refreshProgress() string {
+	if !m.refreshing || m.refreshStarted.IsZero() {
+		return ""
+	}
+	var parts []string
+	if fp, ok := m.src.(fetchProgresser); ok {
+		if done, total := fp.FetchProgress(m.preset); total > 0 {
+			parts = append(parts, fmt.Sprintf("%d/%d repos", done, total))
+		}
+	}
+	if el := time.Since(m.refreshStarted); el >= time.Second {
+		parts = append(parts, fmt.Sprintf("%ds", int(el.Seconds())))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func keyHit(msg tea.KeyMsg, b key.Binding) bool {

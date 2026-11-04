@@ -188,6 +188,19 @@ func (m Model) jumpToHuman(dir int) (tea.Model, tea.Cmd) {
 // the new view as soon as data arrives. Any pending fuzzy filter
 // stays — it re-applies once the new data arrives.
 func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
+	// Re-selecting the preset whose fetch is already in flight is a
+	// no-op: the header already says it, and dispatching again would
+	// cancel the fan-out that is about to land it. Repeated h / Tab
+	// presses during one slow refresh used to cancel seven fan-outs
+	// in a row so nothing could land while the keys were pressed
+	// (would-you-kindly-ocgy). The invariant that makes this safe:
+	// whenever m.refreshing is set, the in-flight fetch is for
+	// m.preset — a real switch always redispatches, and a toggled
+	// scope cancels and redispatches too. A re-select with nothing in
+	// flight still refreshes, as before.
+	if p == m.preset && m.refreshing {
+		return m, nil
+	}
 	// Record the h-toggle's return target on ANY transition into the
 	// human view — h, tab, the :preset palette — not just the h key,
 	// so toggling out always returns to where the user actually came
@@ -256,7 +269,7 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 			m.ensureCursorVisible()
 		}
 	}
-	m.refreshing = true
+	m.beginRefresh()
 	if p == filter.PresetAll && m.fetches != nil && m.fetches.adoptSuperset() {
 		// The background all prefetch is already running the exact
 		// fan-out this switch would dispatch; adopt it as this view's
@@ -265,9 +278,9 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 		// 30-repo fan-out onto the same Dolt engines
 		// (would-you-kindly-t5ab). Adopted, it is superseded by any
 		// newer fetch for the view like a primary one would be.
-		return m, nil
+		return m, m.spinner.Tick
 	}
-	return m, m.fetchCmd()
+	return m, tea.Batch(m.fetchCmd(), m.spinner.Tick)
 }
 
 // allSuperset returns the best "all" rows to derive a view from: a
@@ -575,8 +588,8 @@ func (m Model) toggleShowClosed() (tea.Model, tea.Cmd) {
 	}
 	m.supersetDone = false
 	m.cursor = 0
-	m.refreshing = true
-	return m, m.fetchCmd()
+	m.beginRefresh()
+	return m, tea.Batch(m.fetchCmd(), m.spinner.Tick)
 }
 
 // byteToRuneIdxs converts the byte-offset slice fuzzy returns into

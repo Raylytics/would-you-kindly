@@ -387,9 +387,9 @@ func TestFetchCmd_CancelsPreviousFetch(t *testing.T) {
 	if msg := first(); msg != nil {
 		t.Errorf("superseded fetch should produce no message; got %#v", msg)
 	}
-	msg, ok := second().(fetchedMsg)
+	msg, ok := fetchedFrom(second)
 	if !ok {
-		t.Fatalf("live fetch should produce a fetchedMsg; got %#v", msg)
+		t.Fatalf("live fetch should produce a fetchedMsg; got none from %v", second)
 	}
 	if msg.err != nil || msg.preset != filter.PresetHuman || len(msg.issues) != 2 {
 		t.Errorf("live fetch should land cleanly for the new preset; got %+v", msg)
