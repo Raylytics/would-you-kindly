@@ -118,11 +118,12 @@ func TestWithCacheSnapshot_SeedsAcrossPresets(t *testing.T) {
 		t.Errorf("blocked view should seed with the blocked row; got %v", idsOf(m.all))
 	}
 
-	// …ready cannot be approximated (bd computes dep-readiness):
-	// no seed, cold start.
+	// …and so does ready: the open rows with no open blocker — the
+	// human-labeled row included, bd ready does not exclude it; the
+	// status=blocked row dropped (would-you-kindly-rz26).
 	m = New(src).WithPreset(filter.PresetReady).WithCacheSnapshot(snap, "")
-	if len(m.all) != 0 {
-		t.Errorf("ready view must not seed from a field-predicate filter; got %v", idsOf(m.all))
+	if got := idsOf(m.all); len(got) != 2 || got[0] != "a-1" || got[1] != "h-1" {
+		t.Errorf("ready view should seed with the open, unblocked rows; got %v", got)
 	}
 
 	// …and a non-all snapshot can't reconstruct a different view.
@@ -276,32 +277,78 @@ func TestSwitchPreset_DerivesFromAllSuperset(t *testing.T) {
 	}
 }
 
-// TestSwitchPreset_ReadyShowsStaleBand: ready can't be derived, so
-// the old rows stay up — and the view must say so with a band above
-// the table (counted in chromeExtra so the row budget stays right),
-// not just the status-line glyph.
-func TestSwitchPreset_ReadyShowsStaleBand(t *testing.T) {
-	src := &stubSource{issues: manyIssues(3)}
+// TestSwitchPreset_ReadyDerivesFromAll: ready paints on the same
+// frame as the other presets — bd ready's rule (status open, no
+// `blocks` edge to a non-closed row) applied to the all superset,
+// approx-marked until the live fetch lands (would-you-kindly-rz26).
+// Before this, ready was the one preset that kept the previous
+// view's rows up for the whole multi-repo fan-out, which on a
+// 29-workspace registry read as a hang.
+func TestSwitchPreset_ReadyDerivesFromAll(t *testing.T) {
+	blocks := func(on string) []beads.Dependency {
+		return []beads.Dependency{{DependsOnID: on, Type: "blocks"}}
+	}
+	src := &stubSource{issues: []beads.Issue{
+		{ID: "a-1", Status: "open"},                              // ready
+		{ID: "a-2", Status: "open", Dependencies: blocks("a-1")}, // blocked by an open row
+		{ID: "a-3", Status: "in_progress"},                       // bd ready excludes
+		{ID: "a-4", Status: "blocked"},                           // bd ready excludes
+		{ID: "a-5", Status: "open", Dependencies: blocks("x-9")}, // blocker not in the set: ready
+		{ID: "a-6", Status: "open", Dependencies: []beads.Dependency{{DependsOnID: "a-1", Type: "parent-child"}}}, // not a blocks edge
+	}}
 	m := applyFetched(New(src), src)
+	m.width, m.height = 100, 30
+
+	model, _ := m.switchPreset(filter.PresetReady)
+	m = model.(Model)
+	if got := idsOf(m.visible); len(got) != 3 || got[0] != "a-1" || got[1] != "a-5" || got[2] != "a-6" {
+		t.Errorf("ready switch should paint the derived open-and-unblocked subset; got %v", got)
+	}
+	if m.rowsStale() {
+		t.Error("a derived ready view is not stale")
+	}
+	if !m.rowsApprox {
+		t.Error("derived ready rows must be approx-marked until the live fetch reconciles")
+	}
+	if strings.Contains(m.View(), "loading ready") {
+		t.Error("no loading band when ready painted from the superset")
+	}
+
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetReady, issues: manyIssues(2)})
+	m = model.(Model)
+	if m.rowsApprox {
+		t.Error("landing the live ready fetch should clear the approx marker")
+	}
+}
+
+// TestSwitchPreset_NoSupersetShowsStaleBand: with no all superset
+// known at all (this session has only fetched a subset preset), a
+// switch has nothing to derive from, so the old rows stay up — and
+// the view must say so with a band above the table (counted in
+// chromeExtra so the row budget stays right), not just the
+// status-line glyph.
+func TestSwitchPreset_NoSupersetShowsStaleBand(t *testing.T) {
+	src := &stubSource{issues: manyIssues(3)}
+	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
 	m.width, m.height = 100, 30
 	before := m.chromeExtra()
 
 	model, _ := m.switchPreset(filter.PresetReady)
 	m = model.(Model)
 	if !m.rowsStale() {
-		t.Fatal("ready switch with no cache should leave the rows stale")
+		t.Fatal("switch with no cache and no superset should leave the rows stale")
 	}
 	if len(m.all) != 3 {
 		t.Errorf("stale rows must stay on screen; got %d", len(m.all))
 	}
 	out := m.View()
-	if !strings.Contains(out, "loading ready") || !strings.Contains(out, "[all] view") {
+	if !strings.Contains(out, "loading ready") || !strings.Contains(out, "[human] view") {
 		t.Errorf("view should carry the stale-rows band naming both presets; got:\n%s", out)
 	}
-	// chromeExtra gains the band line; the chip strip also appears
-	// (all → ready), so expect exactly two more lines.
-	if got := m.chromeExtra(); got != before+2 {
-		t.Errorf("chromeExtra should count band + chip strip; got %d, want %d", got, before+2)
+	// chromeExtra gains the band line; the chip strip was already up
+	// (human is a non-all preset), so expect exactly one more line.
+	if got := m.chromeExtra(); got != before+1 {
+		t.Errorf("chromeExtra should count the band; got %d, want %d", got, before+1)
 	}
 
 	model, _ = m.Update(fetchedMsg{preset: filter.PresetReady, issues: manyIssues(2)})
@@ -340,9 +387,9 @@ func TestFetchCmd_CancelsPreviousFetch(t *testing.T) {
 	if msg := first(); msg != nil {
 		t.Errorf("superseded fetch should produce no message; got %#v", msg)
 	}
-	msg, ok := second().(fetchedMsg)
+	msg, ok := fetchedFrom(second)
 	if !ok {
-		t.Fatalf("live fetch should produce a fetchedMsg; got %#v", msg)
+		t.Fatalf("live fetch should produce a fetchedMsg; got none from %v", second)
 	}
 	if msg.err != nil || msg.preset != filter.PresetHuman || len(msg.issues) != 2 {
 		t.Errorf("live fetch should land cleanly for the new preset; got %+v", msg)

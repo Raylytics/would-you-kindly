@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A workspace whose `.beads/metadata.json` is missing no longer
+  reads as empty** (would-you-kindly-dcby, would-you-kindly-o9gq). bd
+  falls back to an empty default database in that state and `bd list`
+  answers "No issues found" without failing — which is what every
+  clone hit after `.beads/` stopped being tracked and git removed the
+  config files. `wyk doctor` now FAILs the repo with the exact `git
+  show` restore command, and the TUI reports it as a per-repo fetch
+  failure instead of silently dropping the repo's rows. Skipping bd
+  for those repos also ends the per-tick cache miss they caused: bd
+  bumps the `.beads` mtime on every read while running without its
+  config.
+- **The loading band shows fan-out progress and elapsed time**, and
+  re-selecting the preset whose fetch is already in flight no longer
+  cancels and restarts it (would-you-kindly-ocgy). "loading ready…
+  12/29 repos · 18s" (and "↻ refreshing 12/29 repos · 18s" in the
+  status bar) distinguishes a slow multi-repo round-trip from a hang;
+  repeated `h` / Tab presses during one used to cancel the fan-out
+  every time so nothing could land.
+- **`make check` runs under the toolchain go.mod names** instead of
+  whatever `go` is on PATH (would-you-kindly-ng3j). A newer Homebrew
+  Go broke `make lint` with "export data version 5 is greater than
+  maximum supported version 4"; the Makefile now exports `GOTOOLCHAIN`
+  from go.mod so the local gate sees the same compiler as CI.
+- **Preset switches no longer block on the full multi-repo fan-out
+  when the session launched on a subset view** (would-you-kindly-t5ab).
+  A session restored onto `human` had no `all` superset in memory, so
+  the first switch to `all` sat under the "loading all… rows below are
+  still the [human] view" band for the whole `bd list` fan-out — 20s+
+  on a 30-workspace registry, where that fan-out floors at ~16s wall
+  regardless of concurrency. The TUI now prefetches the `all` superset
+  in the background right after the first subset fetch lands, so every
+  later switch paints on the same frame; a switch to `all` while the
+  prefetch is in flight reuses it instead of dispatching a duplicate
+  fan-out. The per-repo fetch cache is keyed by (repo, preset) so the
+  prefetch and the current view's ticks stop evicting each other.
+
 ## [0.8.1] — 2026-10-22
 
 ### Security

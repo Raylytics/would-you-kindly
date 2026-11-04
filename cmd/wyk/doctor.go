@@ -25,6 +25,7 @@ import (
 	"github.com/jimbottle/would-you-kindly/internal/sanitize"
 	"github.com/jimbottle/would-you-kindly/internal/skills"
 	"github.com/jimbottle/would-you-kindly/internal/uiconfig"
+	"github.com/jimbottle/would-you-kindly/internal/workspace"
 	"github.com/jimbottle/would-you-kindly/internal/wykconfig"
 )
 
@@ -1147,6 +1148,99 @@ func capIDs(ids []string) string {
 	return strings.Join(ids[:max], ", ") + fmt.Sprintf(", +%d more", len(ids)-max)
 }
 
+// lastTrackedCommit returns the newest commit in repoPath whose TREE
+// holds rel, or "" when git has no record of it. Used to turn the
+// metadata.json restore hint into a copy-pasteable command. Swappable
+// so unit tests don't need a git history (lastTrackedCommitGit is the
+// real one, tested against a temp repo).
+var lastTrackedCommit = lastTrackedCommitGit
+
+// lastTrackedCommitGit asks git for the last commit that added or
+// modified rel. `--diff-filter=d` excludes deletions: a plain `log -1
+// -- rel` answers with the commit that REMOVED the file — exactly the
+// untracking commit this check exists for — and `git show
+// <that>:rel` then fails (roborev #6937).
+func lastTrackedCommitGit(repoPath, rel string) string {
+	out, err := exec.Command("git", "-C", repoPath, "log", "-1", "--format=%H", "--diff-filter=d", "--", rel).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// checkBeadsDatabase reports whether bd will open the database this
+// workspace's data is actually in. When .beads/metadata.json is
+// missing (or names a database that isn't on disk) while
+// .beads/embeddeddolt holds a real one, bd warns once, falls back to
+// an empty default database and `bd list` answers "No issues found" —
+// which is what every clone hit after `.beads/` stopped being tracked
+// and git removed the two config files from the working tree
+// (would-you-kindly-dcby). ok=false means there is nothing to say:
+// no embedded databases (JSONL-only / remote Dolt) or only the
+// default one, where bd's fallback is already right.
+func checkBeadsDatabase(prefix, repoPath string) (check, bool) {
+	state, err := workspace.Inspect(repoPath)
+	if err != nil || len(state.Databases) == 0 {
+		return check{}, false
+	}
+	name := prefix + ": bd opens the workspace's database"
+	mm := state.Mismatch()
+	if mm == nil {
+		if state.Configured == "" {
+			// Only the default database exists and nothing names it:
+			// bd lands on the right one, but it is running without its
+			// config files.
+			return check{name: name, status: statusWarn, detail: "no .beads/metadata.json; bd is using its default database — re-run `bd init` here to write the config files"}, true
+		}
+		return check{name: name, status: statusPass, detail: ".beads/embeddeddolt/" + state.Configured}, true
+	}
+	target := mm.Candidates[0]
+	// Everything interpolated into the suggested command is
+	// shell-quoted: repoPath is whatever the registry holds, and the
+	// JSON payload carries quotes of its own.
+	qpath := shellQuote(repoPath)
+	fix := "git -C " + qpath + " log -1 --format=%H --diff-filter=d -- .beads/metadata.json  # the last commit whose tree has it, then git show <sha>:.beads/metadata.json > .beads/metadata.json"
+	if sha := lastTrackedCommit(repoPath, ".beads/metadata.json"); sha != "" {
+		fix = fmt.Sprintf("(cd %s && git show %s:.beads/metadata.json > .beads/metadata.json", qpath, short(sha))
+		// config.yaml went the same way in the untracking commit;
+		// restore it too when history has it (bd runs without it,
+		// but sync.remote and the other settings live there).
+		if csha := lastTrackedCommit(repoPath, ".beads/config.yaml"); csha != "" {
+			fix += fmt.Sprintf(" && git show %s:.beads/config.yaml > .beads/config.yaml", short(csha))
+		}
+		fix += ")"
+	} else if len(mm.Candidates) == 1 {
+		fix = fmt.Sprintf("printf '%%s\\n' %s > %s/.beads/metadata.json", shellQuote(workspace.MinimalMetadata(target)), qpath)
+	}
+	return check{
+		name:   name,
+		status: statusFail,
+		detail: mm.Error() + ". bd list here returns no issues while the real tracker sits untouched. Restore the file: " + fix,
+	}, true
+}
+
+// short abbreviates a full git sha for a copy-pasteable command; a
+// sha is hex by construction, so no quoting is needed. Anything that
+// is not hex is not a sha and is dropped rather than echoed.
+func short(sha string) string {
+	for _, r := range sha {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return ""
+		}
+	}
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
+// shellQuote wraps s in single quotes for a POSIX shell, escaping any
+// embedded single quote, so a path or payload pasted from a doctor row
+// is one literal word no matter what it contains.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func checkRepo(r registry.Repo) []check {
 	prefix := "repo " + r.Name
 	var out []check
@@ -1176,6 +1270,9 @@ func checkRepo(r registry.Repo) []check {
 		})
 	} else {
 		out = append(out, check{name: prefix + ": .beads/ present", status: statusPass})
+		if c, ok := checkBeadsDatabase(prefix, r.Path); ok {
+			out = append(out, c)
+		}
 
 		// Separate check: does bd actually respond? Bounded by a
 		// timeout so a broken/locked workspace doesn't hang the whole

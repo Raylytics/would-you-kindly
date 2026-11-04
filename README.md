@@ -50,12 +50,12 @@ its own bd issues, and hand the human-only steps back through the same
 `human` label the TUI keys off. The evidence is in the history, not the
 pitch:
 
-- **More than half of the 440+ commits** carry a `Closes: <bd-id>`
-  trailer — the post-commit hook `wyk init` installs auto-closed the
-  issue behind each one. `git log --grep '^Closes:'` shows the loop
-  running on itself.
+- **Over 200 of the 500+ commits** (roughly two in five) carry a
+  `Closes: <bd-id>` trailer — the post-commit hook `wyk init` installs
+  auto-closed the issue behind each one. `git log --grep '^Closes:'`
+  shows the loop running on itself.
 - **360+ issues** have gone through the tracker, all but a handful
-  closed. Human-flagged issues close in a median of ~12 hours;
+  closed. Human-flagged issues close in a median of about 15 hours;
   agent-filed ones carry `src:agent` and the Claude session that filed
   them (`wyk stats` reports both). The tracker itself is not in git, but
   [`docs/backlog-snapshot.md`](docs/backlog-snapshot.md) is a scrubbed,

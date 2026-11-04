@@ -9,6 +9,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -308,6 +309,11 @@ type Model struct {
 	// status bar so the existing rows stay on screen during the
 	// round-trip. Cleared on fetchedMsg arrival.
 	refreshing bool
+	// refreshStarted is when the in-flight refresh was dispatched; the
+	// loading band and status bar show the elapsed time from it so a
+	// slow multi-repo fan-out reads as progress, not a hang
+	// (would-you-kindly-ocgy). Zero when nothing is in flight.
+	refreshStarted time.Time
 
 	// updateNudge is a one-line "↑ wyk vX.Y.Z available — run
 	// `wyk update`" message read from the updater cache at start-
@@ -360,6 +366,20 @@ type Model struct {
 	// launch has it too (would-you-kindly-rqo9).
 	allSnap   []beads.Issue
 	allSnapAt time.Time
+	// supersetDone records that the background all-superset prefetch
+	// has been dispatched under the current closed-issues scope (once
+	// is enough — every later all visit or tick keeps
+	// presetCache[all] current; toggleShowClosed resets it so the new
+	// scope gets its own). The prefetch goes out after the FIRST
+	// successful fetch of a non-all preset, so a session launched on
+	// human can still paint any later switch instantly instead of
+	// blocking on the full multi-repo fan-out (16-30s on a
+	// 30-workspace registry, would-you-kindly-t5ab). Whether one is
+	// in flight is the fetchController's knowledge (supersetInFlight):
+	// it owns the prefetch's context, so a scope change or a newer
+	// fetch for the all view can cancel it the way any superseded
+	// fetch is cancelled (roborev #6902).
+	supersetDone bool
 	// fetches cancels the previous in-flight fetch whenever a
 	// replacement is dispatched (preset switch, r, a post-write
 	// refetch). Shared by pointer so the cancel survives Bubble
@@ -1015,6 +1035,42 @@ func (m Model) fetchCmd() tea.Cmd {
 	if m.fetches != nil {
 		ctx = m.fetches.begin()
 	}
+	return fetchPresetCmd(ctx, src, preset, false)
+}
+
+// supersetCmd is the background prefetch of the all superset
+// (would-you-kindly-t5ab). It runs under the fetchController's
+// SEPARATE superset context: it must neither cancel the fetch the
+// user is waiting on nor be cancelled by the next tick, since its
+// whole point is to finish once, in the background, so that every
+// later preset switch has a superset to derive from. It IS
+// cancelled when its rows could no longer be trusted — a
+// closed-issues scope change (toggleShowClosed), or, once a switch
+// to all has adopted it as that view's fetch, any newer fetch
+// dispatched for the view (manual r, a post-write refetch) — so a
+// stale result can never land over newer rows (roborev #6902). Its
+// result lands as a background fetchedMsg (see that type).
+func (m Model) supersetCmd() tea.Cmd {
+	ctx := context.Background()
+	if m.fetches != nil {
+		ctx = m.fetches.beginSuperset()
+	}
+	return fetchPresetCmd(ctx, m.src, filter.PresetAll, true)
+}
+
+// supersetInFlight reports whether the background all prefetch is
+// still running (and not cancelled). Always false without a
+// controller.
+func (m Model) supersetInFlight() bool {
+	return m.fetches != nil && m.fetches.supersetInFlight()
+}
+
+// fetchPresetCmd is the shared body of fetchCmd and supersetCmd: run
+// the Source for preset under ctx and echo the preset (and the
+// background flag) back on the result. A cancelled ctx yields nil —
+// no message at all — so a superseded fetch can neither clobber the
+// rows nor clear m.refreshing out from under its replacement.
+func fetchPresetCmd(ctx context.Context, src Source, preset filter.Preset, background bool) tea.Cmd {
 	return func() tea.Msg {
 		var msg fetchedMsg
 		if ms, ok := src.(MultiSource); ok {
@@ -1027,6 +1083,7 @@ func (m Model) fetchCmd() tea.Cmd {
 		if ctx.Err() != nil {
 			return nil
 		}
+		msg.background = background
 		return msg
 	}
 }
@@ -1037,9 +1094,24 @@ func (m Model) fetchCmd() tea.Cmd {
 // fetch safe to drop silently: cancel only ever happens because a
 // newer fetch is being dispatched, so there is always one live
 // round-trip to land and clear the refreshing state.
+//
+// The background all-superset prefetch (supersetCmd) has its own
+// slot: it is not superseded by the next primary fetch, because it
+// is meant to finish in the background regardless of what the user
+// does meanwhile. Two things end it early: cancelSuperset (a
+// closed-issues scope change makes its rows wrong), and — once
+// adoptSuperset has made it the all view's own fetch — any later
+// begin, which then supersedes it exactly like a primary fetch
+// (roborev #6902). A cancelled prefetch yields no message, so it
+// can neither refill the preset cache nor overwrite newer rows.
 type fetchController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	// superset is the in-flight prefetch's cancel; nil when none.
+	superset context.CancelFunc
+	// adopted is true once the prefetch stands in for the current
+	// view's fetch, which puts it under begin's supersession.
+	adopted bool
 }
 
 func (f *fetchController) begin() context.Context {
@@ -1048,9 +1120,90 @@ func (f *fetchController) begin() context.Context {
 	if f.cancel != nil {
 		f.cancel()
 	}
+	if f.adopted {
+		f.dropSupersetLocked()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 	return ctx
+}
+
+// beginSuperset cancels any earlier prefetch and hands back the
+// context for a new one.
+func (f *fetchController) beginSuperset() context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dropSupersetLocked()
+	ctx, cancel := context.WithCancel(context.Background())
+	f.superset = cancel
+	return ctx
+}
+
+// adoptSuperset makes the in-flight prefetch the current view's
+// fetch: the primary fetch it replaces is cancelled (its answer is
+// no longer wanted, as with any dispatch), and from here on a newer
+// begin supersedes the prefetch too. Returns false when there is no
+// prefetch to adopt — the caller dispatches normally then.
+func (f *fetchController) adoptSuperset() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.superset == nil {
+		return false
+	}
+	if f.cancel != nil {
+		f.cancel()
+		f.cancel = nil
+	}
+	f.adopted = true
+	return true
+}
+
+// unadoptSuperset returns an adopted prefetch to the background:
+// the user left the all view, so the next primary dispatch serves
+// another preset and cannot land over all rows — there is nothing
+// for the prefetch to be superseded by, and cancelling it would
+// strand the session without a superset for the rest of its life
+// (roborev #6906). The prefetch keeps running and lands through the
+// background branch as if never adopted. No-op when not adopted.
+func (f *fetchController) unadoptSuperset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.adopted = false
+}
+
+// cancelSuperset ends the in-flight prefetch, if any, without
+// touching the primary fetch.
+func (f *fetchController) cancelSuperset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dropSupersetLocked()
+}
+
+// supersetLanded records the prefetch's completion. Returns false
+// when no prefetch was in flight — a result that arrives anyway is
+// stale (cancelled, or from a scope since changed) and must be
+// dropped.
+func (f *fetchController) supersetLanded() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.superset == nil {
+		return false
+	}
+	f.superset, f.adopted = nil, false
+	return true
+}
+
+func (f *fetchController) supersetInFlight() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.superset != nil
+}
+
+func (f *fetchController) dropSupersetLocked() {
+	if f.superset != nil {
+		f.superset()
+	}
+	f.superset, f.adopted = nil, false
 }
 
 func tickCmd(gen int) tea.Cmd {
@@ -1062,6 +1215,13 @@ type fetchedMsg struct {
 	issues  []beads.Issue
 	subErrs []FetchError
 	err     error
+	// background marks the all-superset prefetch (supersetCmd): a
+	// fetch nobody is waiting on. When it lands for a preset other
+	// than the current one it is stored (presetCache[all] / allSnap)
+	// instead of dropped, and it never touches the rows, the
+	// refreshing flag, or the per-sub error banner. When the user has
+	// since switched onto all, it lands like any other fetch.
+	background bool
 }
 
 type tickMsg struct{ gen int }
@@ -1251,6 +1411,38 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchedMsg:
+		if msg.background {
+			if m.fetches != nil && !m.fetches.supersetLanded() {
+				// Nothing in flight owns this result: it was
+				// cancelled (scope change, or superseded after a
+				// switch to all adopted it) and must not refill the
+				// cache or overwrite newer rows (roborev #6902).
+				return m, nil
+			}
+			if msg.preset != m.preset {
+				// The all-superset prefetch landed while the user is
+				// still on another view: file it where switchPreset
+				// looks (presetCache[all] for an exact instant paint,
+				// allSnap for the next cache save's sidecar) and touch
+				// nothing on screen — not the rows, not refreshing,
+				// not the per-sub banner, which describes the fetch
+				// the user is actually watching. A failed prefetch is
+				// simply dropped; the next switch to all cold-starts
+				// as before.
+				if msg.err == nil {
+					snap := cloneIssues(msg.issues)
+					if m.presetCache == nil {
+						m.presetCache = make(map[filter.Preset][]beads.Issue)
+					}
+					m.presetCache[filter.PresetAll] = snap
+					m.allSnap, m.allSnapAt = snap, time.Now()
+				}
+				return m, nil
+			}
+			// The user switched onto all while the prefetch was in
+			// flight (switchPreset skipped its own dispatch in favour
+			// of this one): land it like a normal fetch.
+		}
 		// Drop results from a fetch dispatched for a preset we've
 		// since moved off of — otherwise an in-flight tick can clobber
 		// the user's newly-selected view.
@@ -1267,9 +1459,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		recovered := isTerminalErr(m.lastErr) && !isTerminalErr(msg.err)
 		m.loading = false
 		m.refreshing = false
+		m.refreshStarted = time.Time{}
 		m.lastSync = time.Now()
 		m.lastErr = msg.err
-		var cacheCmd, depsCmd tea.Cmd
+		var cacheCmd, depsCmd, prefetchCmd tea.Cmd
 		if msg.err == nil {
 			m.all = msg.issues
 			m.rowsPreset = msg.preset
@@ -1332,6 +1525,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cachePath != "" {
 				cacheCmd = saveCacheCmd(m.cachePath, string(m.preset), m.cacheScope, snap, m.allSnap, m.allSnapAt)
 			}
+			// First live landing of a non-all view: prefetch the all
+			// superset in the background so later switches paint on
+			// the same frame (would-you-kindly-t5ab). After this
+			// landing on purpose — the view the user launched into
+			// paints first, then the fan-out nobody is waiting on
+			// starts. Once per session: the all view, once known, is
+			// kept current by its own visits and ticks.
+			if msg.preset != filter.PresetAll && !m.supersetDone {
+				m.supersetDone = true
+				prefetchCmd = m.supersetCmd()
+			}
 		}
 		// Per-sub fetch errors travel on the msg itself so they
 		// always reflect THIS fetch — not a concurrent one that
@@ -1341,9 +1545,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetchErrors = msg.subErrs
 		if recovered {
 			m.tickGen++
-			return m, tea.Batch(tickCmd(m.tickGen), cacheCmd, depsCmd)
+			return m, tea.Batch(tickCmd(m.tickGen), cacheCmd, depsCmd, prefetchCmd)
 		}
-		return m, tea.Batch(cacheCmd, depsCmd)
+		return m, tea.Batch(cacheCmd, depsCmd, prefetchCmd)
 
 	case tickMsg:
 		// Drop ticks from a chain we've already replaced — this
@@ -1373,8 +1577,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading || m.refreshing {
 			return m, tickCmd(m.tickGen)
 		}
-		m.refreshing = true
-		return m, tea.Batch(m.fetchCmd(), tickCmd(m.tickGen))
+		m.beginRefresh()
+		return m, tea.Batch(m.fetchCmd(), tickCmd(m.tickGen), m.spinner.Tick)
 
 	case fsEventMsg:
 		// External bd write — refetch AND re-arm the watcher wait so
@@ -1411,8 +1615,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.lastSync.IsZero() && time.Since(m.lastSync) < minFSRefreshGap {
 			return m, waitFSEvent(m.fsEvents)
 		}
-		m.refreshing = true
-		return m, tea.Batch(m.fetchCmd(), waitFSEvent(m.fsEvents))
+		m.beginRefresh()
+		return m, tea.Batch(m.fetchCmd(), waitFSEvent(m.fsEvents), m.spinner.Tick)
 
 	case writeMsg:
 		return m.handleWriteResult(msg)
@@ -1475,10 +1679,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, flashClearCmd(m.statusGen)
 
 	case spinner.TickMsg:
-		// Animate the loading indicator. Only re-tick while we're
-		// actually showing it (the first paint, before data lands)
-		// to avoid burning CPU on every other view.
-		if m.loading {
+		// Animate the loading indicator. Only re-tick while something
+		// is in flight — the first paint, or a refresh whose elapsed
+		// time / repo tally the band and status bar are showing
+		// (would-you-kindly-ocgy) — to avoid burning CPU on every other
+		// view. fetchedMsg clears both flags, so the chain retires on
+		// its own.
+		if m.loading || m.refreshing {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -1900,19 +2107,58 @@ func issueKey(i beads.Issue) string {
 // with "loading…" on every keypress produced a jarring
 // full-canvas blank.
 func (m Model) manualRefresh() (tea.Model, tea.Cmd) {
-	m.refreshing = true
+	m.beginRefresh()
 	// `r` is the user's "I want fresh data NOW" escape hatch — drop any
 	// per-repo fetch cache so every repo is re-queried live, even if its
 	// .beads mtime looks unchanged (would-you-kindly-jipr).
 	if ci, ok := m.src.(cacheInvalidator); ok {
 		ci.InvalidateCache()
 	}
-	cmds := []tea.Cmd{m.fetchCmd()}
+	cmds := []tea.Cmd{m.fetchCmd(), m.spinner.Tick}
 	if isTerminalErr(m.lastErr) {
 		m.tickGen++
 		cmds = append(cmds, tickCmd(m.tickGen))
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// beginRefresh marks a fetch for the current view as in flight and
+// stamps when it started. Every dispatch site goes through it so the
+// elapsed-time readout (would-you-kindly-ocgy) measures the whole
+// round-trip; the callers also batch m.spinner.Tick so the band and
+// status bar re-render while the fetch runs (see the spinner.TickMsg
+// handler — the spinner's tag check dedups overlapping chains).
+func (m *Model) beginRefresh() {
+	m.refreshing = true
+	m.refreshStarted = time.Now()
+}
+
+// fetchProgresser is the optional interface a Source implements to
+// report how far the fan-out for a preset has got. MultiBDSource does;
+// a single-repo source has nothing to count.
+type fetchProgresser interface {
+	FetchProgress(p filter.Preset) (done, total int)
+}
+
+// refreshProgress is the "12/29 repos · 18s" readout for the in-flight
+// refresh, or "" when nothing is in flight or nothing is worth saying
+// yet. The repo tally needs a fetchProgresser; the elapsed time appears
+// once the fetch has run a full second, so a fast refresh never flashes
+// "0s" (would-you-kindly-ocgy).
+func (m Model) refreshProgress() string {
+	if !m.refreshing || m.refreshStarted.IsZero() {
+		return ""
+	}
+	var parts []string
+	if fp, ok := m.src.(fetchProgresser); ok {
+		if done, total := fp.FetchProgress(m.preset); total > 0 {
+			parts = append(parts, fmt.Sprintf("%d/%d repos", done, total))
+		}
+	}
+	if el := time.Since(m.refreshStarted); el >= time.Second {
+		parts = append(parts, fmt.Sprintf("%ds", int(el.Seconds())))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func keyHit(msg tea.KeyMsg, b key.Binding) bool {

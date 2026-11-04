@@ -364,8 +364,9 @@ func TestShowClosed_TogglesStateAndRefetches(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Errorf("expected a refetch cmd after C")
-	} else if msg := cmd(); msg != nil {
-		// Drive the returned cmd so the stub's Fetch counter ticks.
+	} else if msg, ok := fetchedFrom(cmd); ok {
+		// Drive the fetch inside the returned batch so the stub's
+		// Fetch counter ticks.
 		next, _ := m.Update(msg)
 		m = next.(Model)
 	}

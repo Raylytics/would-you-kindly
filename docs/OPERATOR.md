@@ -203,6 +203,18 @@ parseable, each registered repo has `.beads/` and `.git/`, post-
 commit hook is either wyk's (plain or chained) or flagged as foreign,
 chained hook's `.pre-wyk` preservation file is intact.
 
+It also checks that bd will open the database each workspace's data is
+actually in. When `.beads/metadata.json` is missing or names a database
+that is not under `.beads/embeddeddolt/`, bd prints one warning, falls
+back to an empty default database and `bd list` answers "No issues
+found" as if the tracker were empty — which is what happens to every
+clone after a repo stops tracking `.beads/` and git removes the two
+config files from the working tree. The row FAILs with the exact
+`git show <sha>:.beads/metadata.json > .beads/metadata.json` restore
+command (or a minimal hand-written `metadata.json` when history has
+none). The TUI reports the same condition as a per-repo fetch failure
+instead of silently showing zero rows for that repo.
+
 It also reconciles each repo's open queue against the handoff contract
 — surfacing human tasks with an empty runbook, human tasks missing a
 `src:` provenance label, and agent tasks with no assignee (orphans) —
