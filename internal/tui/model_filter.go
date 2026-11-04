@@ -249,6 +249,15 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.refreshing = true
+	if p == filter.PresetAll && m.supersetFetching {
+		// The background all prefetch is already running the exact
+		// fan-out this switch would dispatch; let it land as this
+		// view's fetch (its background fetchedMsg takes the normal
+		// landing path once m.preset is all) instead of piling a
+		// duplicate 30-repo fan-out onto the same Dolt engines
+		// (would-you-kindly-t5ab).
+		return m, nil
+	}
 	return m, m.fetchCmd()
 }
 

@@ -726,20 +726,30 @@ type MultiBDSource struct {
 	// every registered repo via bd, which scales poorly with registry
 	// size; most refreshes (a tick, or an fs-event from ONE repo's write)
 	// leave the other repos unchanged. We skip the bd subprocess for a
-	// repo whose .beads/ mtime AND preset match a recent cache entry.
-	// Invalidated by: an mtime change (covers every bd write, local or
-	// external, since bd's temp-file+rename writes bump the dir mtime),
-	// SetIncludeClosed (changes query semantics without touching .beads),
-	// an explicit InvalidateCache (the manual `r` refresh), and a TTL
-	// backstop that self-heals any missed mtime signal.
+	// repo whose .beads/ mtime matches a recent cache entry for the
+	// requested preset. Keyed by (repo, preset) — not repo alone — so
+	// the background "all" superset fetch (model.go's supersetCmd) and
+	// the current view's refresh ticks each keep their own entry
+	// instead of evicting each other's, which would turn every tick
+	// after the prefetch back into a full fan-out
+	// (would-you-kindly-t5ab). Invalidated by: an mtime change (covers
+	// every bd write, local or external, since bd's temp-file+rename
+	// writes bump the dir mtime), SetIncludeClosed (changes query
+	// semantics without touching .beads), an explicit InvalidateCache
+	// (the manual `r` refresh), and a TTL backstop that self-heals any
+	// missed mtime signal.
 	cacheMu sync.Mutex
-	cache   map[string]subCacheEntry
+	cache   map[subCacheKey]subCacheEntry
 }
 
-// subCacheEntry is one repo's cached fetch result. Keyed by sub name in
-// MultiBDSource.cache.
-type subCacheEntry struct {
+// subCacheKey addresses one repo's cached result for one preset.
+type subCacheKey struct {
+	name   string
 	preset filter.Preset
+}
+
+// subCacheEntry is one repo's cached fetch result for one preset.
+type subCacheEntry struct {
 	mtime  time.Time
 	at     time.Time
 	issues []beads.Issue
@@ -775,8 +785,8 @@ func beadsMtime(repoPath string) (time.Time, bool) {
 func (m *MultiBDSource) cacheGet(name string, p filter.Preset, mtime time.Time) ([]beads.Issue, bool) {
 	m.cacheMu.Lock()
 	defer m.cacheMu.Unlock()
-	e, ok := m.cache[name]
-	if !ok || e.preset != p || !e.mtime.Equal(mtime) || time.Since(e.at) > fetchCacheTTL {
+	e, ok := m.cache[subCacheKey{name, p}]
+	if !ok || !e.mtime.Equal(mtime) || time.Since(e.at) > fetchCacheTTL {
 		return nil, false
 	}
 	return cloneIssues(e.issues), true
@@ -788,9 +798,9 @@ func (m *MultiBDSource) cachePut(name string, p filter.Preset, mtime time.Time, 
 	m.cacheMu.Lock()
 	defer m.cacheMu.Unlock()
 	if m.cache == nil {
-		m.cache = make(map[string]subCacheEntry)
+		m.cache = make(map[subCacheKey]subCacheEntry)
 	}
-	m.cache[name] = subCacheEntry{preset: p, mtime: mtime, at: time.Now(), issues: cloneIssues(issues)}
+	m.cache[subCacheKey{name, p}] = subCacheEntry{mtime: mtime, at: time.Now(), issues: cloneIssues(issues)}
 }
 
 // InvalidateCache drops every cached fetch result, forcing the next

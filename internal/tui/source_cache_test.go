@@ -63,10 +63,18 @@ func TestMultiBDSource_FetchCache(t *testing.T) {
 		t.Errorf("InvalidateCache should force re-fetch; count=%d, want 3", count())
 	}
 
-	// Different preset is a different cache key.
+	// Different preset is a different cache key…
 	fetch(filter.PresetReady)
 	if count() != 4 {
 		t.Errorf("preset change should re-fetch; count=%d, want 4", count())
+	}
+	// …that COEXISTS with the first: the entries are keyed by
+	// (repo, preset), so the background all prefetch and the current
+	// view's ticks don't evict each other (would-you-kindly-t5ab).
+	fetch(filter.PresetAll)
+	fetch(filter.PresetReady)
+	if count() != 4 {
+		t.Errorf("per-preset entries should coexist; count=%d, want 4", count())
 	}
 
 	// SetIncludeClosed invalidates the whole cache.
@@ -78,9 +86,9 @@ func TestMultiBDSource_FetchCache(t *testing.T) {
 
 	// TTL backstop: backdate the entry → next fetch misses.
 	m.cacheMu.Lock()
-	e := m.cache["alpha"]
+	e := m.cache[subCacheKey{"alpha", filter.PresetReady}]
 	e.at = time.Now().Add(-2 * fetchCacheTTL)
-	m.cache["alpha"] = e
+	m.cache[subCacheKey{"alpha", filter.PresetReady}] = e
 	m.cacheMu.Unlock()
 	fetch(filter.PresetReady)
 	if count() != 6 {

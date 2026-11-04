@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Preset switches no longer block on the full multi-repo fan-out
+  when the session launched on a subset view** (would-you-kindly-t5ab).
+  A session restored onto `human` had no `all` superset in memory, so
+  the first switch to `all` sat under the "loading all… rows below are
+  still the [human] view" band for the whole `bd list` fan-out — 20s+
+  on a 30-workspace registry, where that fan-out floors at ~16s wall
+  regardless of concurrency. The TUI now prefetches the `all` superset
+  in the background right after the first subset fetch lands, so every
+  later switch paints on the same frame; a switch to `all` while the
+  prefetch is in flight reuses it instead of dispatching a duplicate
+  fan-out. The per-repo fetch cache is keyed by (repo, preset) so the
+  prefetch and the current view's ticks stop evicting each other.
+
 ## [0.8.1] — 2026-10-22
 
 ### Security

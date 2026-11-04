@@ -360,6 +360,19 @@ type Model struct {
 	// launch has it too (would-you-kindly-rqo9).
 	allSnap   []beads.Issue
 	allSnapAt time.Time
+	// supersetFetching is true while the background all-superset
+	// prefetch is in flight; supersetDone records that it has been
+	// dispatched this session (once is enough — every later all
+	// visit or tick keeps presetCache[all] current). The prefetch
+	// goes out after the FIRST successful fetch of a non-all preset,
+	// so a session launched on human can still paint any later
+	// switch instantly instead of blocking on the full multi-repo
+	// fan-out (16-30s on a 30-workspace registry,
+	// would-you-kindly-t5ab). switchPreset reads supersetFetching to
+	// reuse the in-flight prefetch for a switch TO all rather than
+	// dispatching a duplicate fan-out.
+	supersetFetching bool
+	supersetDone     bool
 	// fetches cancels the previous in-flight fetch whenever a
 	// replacement is dispatched (preset switch, r, a post-write
 	// refetch). Shared by pointer so the cancel survives Bubble
@@ -1015,6 +1028,26 @@ func (m Model) fetchCmd() tea.Cmd {
 	if m.fetches != nil {
 		ctx = m.fetches.begin()
 	}
+	return fetchPresetCmd(ctx, src, preset, false)
+}
+
+// supersetCmd is the background prefetch of the all superset
+// (would-you-kindly-t5ab). It deliberately bypasses the
+// fetchController: it must neither cancel the fetch the user is
+// waiting on nor be cancelled by the next tick, since its whole
+// point is to finish once, in the background, so that every later
+// preset switch has a superset to derive from. Its result lands as
+// a background fetchedMsg (see that type).
+func (m Model) supersetCmd() tea.Cmd {
+	return fetchPresetCmd(context.Background(), m.src, filter.PresetAll, true)
+}
+
+// fetchPresetCmd is the shared body of fetchCmd and supersetCmd: run
+// the Source for preset under ctx and echo the preset (and the
+// background flag) back on the result. A cancelled ctx yields nil —
+// no message at all — so a superseded fetch can neither clobber the
+// rows nor clear m.refreshing out from under its replacement.
+func fetchPresetCmd(ctx context.Context, src Source, preset filter.Preset, background bool) tea.Cmd {
 	return func() tea.Msg {
 		var msg fetchedMsg
 		if ms, ok := src.(MultiSource); ok {
@@ -1027,6 +1060,7 @@ func (m Model) fetchCmd() tea.Cmd {
 		if ctx.Err() != nil {
 			return nil
 		}
+		msg.background = background
 		return msg
 	}
 }
@@ -1062,6 +1096,13 @@ type fetchedMsg struct {
 	issues  []beads.Issue
 	subErrs []FetchError
 	err     error
+	// background marks the all-superset prefetch (supersetCmd): a
+	// fetch nobody is waiting on. When it lands for a preset other
+	// than the current one it is stored (presetCache[all] / allSnap)
+	// instead of dropped, and it never touches the rows, the
+	// refreshing flag, or the per-sub error banner. When the user has
+	// since switched onto all, it lands like any other fetch.
+	background bool
 }
 
 type tickMsg struct{ gen int }
@@ -1251,6 +1292,32 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchedMsg:
+		if msg.background {
+			m.supersetFetching = false
+			if msg.preset != m.preset {
+				// The all-superset prefetch landed while the user is
+				// still on another view: file it where switchPreset
+				// looks (presetCache[all] for an exact instant paint,
+				// allSnap for the next cache save's sidecar) and touch
+				// nothing on screen — not the rows, not refreshing,
+				// not the per-sub banner, which describes the fetch
+				// the user is actually watching. A failed prefetch is
+				// simply dropped; the next switch to all cold-starts
+				// as before.
+				if msg.err == nil {
+					snap := cloneIssues(msg.issues)
+					if m.presetCache == nil {
+						m.presetCache = make(map[filter.Preset][]beads.Issue)
+					}
+					m.presetCache[filter.PresetAll] = snap
+					m.allSnap, m.allSnapAt = snap, time.Now()
+				}
+				return m, nil
+			}
+			// The user switched onto all while the prefetch was in
+			// flight (switchPreset skipped its own dispatch in favour
+			// of this one): land it like a normal fetch.
+		}
 		// Drop results from a fetch dispatched for a preset we've
 		// since moved off of — otherwise an in-flight tick can clobber
 		// the user's newly-selected view.
@@ -1269,7 +1336,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = false
 		m.lastSync = time.Now()
 		m.lastErr = msg.err
-		var cacheCmd, depsCmd tea.Cmd
+		var cacheCmd, depsCmd, prefetchCmd tea.Cmd
 		if msg.err == nil {
 			m.all = msg.issues
 			m.rowsPreset = msg.preset
@@ -1332,6 +1399,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cachePath != "" {
 				cacheCmd = saveCacheCmd(m.cachePath, string(m.preset), m.cacheScope, snap, m.allSnap, m.allSnapAt)
 			}
+			// First live landing of a non-all view: prefetch the all
+			// superset in the background so later switches paint on
+			// the same frame (would-you-kindly-t5ab). After this
+			// landing on purpose — the view the user launched into
+			// paints first, then the fan-out nobody is waiting on
+			// starts. Once per session: the all view, once known, is
+			// kept current by its own visits and ticks.
+			if msg.preset != filter.PresetAll && !m.supersetDone {
+				m.supersetDone = true
+				m.supersetFetching = true
+				prefetchCmd = m.supersetCmd()
+			}
 		}
 		// Per-sub fetch errors travel on the msg itself so they
 		// always reflect THIS fetch — not a concurrent one that
@@ -1341,9 +1420,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetchErrors = msg.subErrs
 		if recovered {
 			m.tickGen++
-			return m, tea.Batch(tickCmd(m.tickGen), cacheCmd, depsCmd)
+			return m, tea.Batch(tickCmd(m.tickGen), cacheCmd, depsCmd, prefetchCmd)
 		}
-		return m, tea.Batch(cacheCmd, depsCmd)
+		return m, tea.Batch(cacheCmd, depsCmd, prefetchCmd)
 
 	case tickMsg:
 		// Drop ticks from a chain we've already replaced — this
