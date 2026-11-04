@@ -241,10 +241,11 @@ details are in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Releasing
 
 `scripts/release.sh X.Y.Z` on a clean, green `main`: it prepends the release
-to `CHANGELOG.md` from the commits with git-cliff, commits
-`chore(release): vX.Y.Z`, and pushes a signed tag. The `release` workflow then
-runs goreleaser, which attaches the binaries and bumps the Homebrew tap. The
-changelog lives in [CHANGELOG.md](CHANGELOG.md).
+to `CHANGELOG.md` from the commits with git-cliff, lands the
+`chore(release): vX.Y.Z` commit through an auto-merged PR, and pushes a signed
+tag at the merge commit. The `release` workflow then runs goreleaser, which
+attaches the binaries and bumps the Homebrew tap. The changelog lives in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

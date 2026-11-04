@@ -180,10 +180,18 @@ addressing them is the normal back-and-forth.
 
 Maintainers only. `scripts/release.sh X.Y.Z` on a clean, green `main`
 prepends the release section to `CHANGELOG.md` from the Conventional Commits
-since the last tag (git-cliff, `cliff.toml`), commits `chore(release): vX.Y.Z`,
-and pushes a signed annotated tag. The release workflow then cuts the GitHub
-release from that `CHANGELOG.md` section (goreleaser attaches the binaries and
-bumps the Homebrew tap), and `wyk update` finds it via the GitHub releases API.
+since the last tag (git-cliff, `cliff.toml`), folding any hand-written
+`## [Unreleased]` notes under it, commits `chore(release): vX.Y.Z` on a
+`chore/release-vX.Y.Z` branch, opens the PR with squash auto-merge armed, and
+once CI has merged it pushes a signed annotated tag at the merge commit. (The
+`main` ruleset only accepts pull requests, so the script cannot push the
+release commit directly.) `RELEASE_DRY_RUN=1 scripts/release.sh X.Y.Z` prints
+the section it would commit and touches nothing. The release workflow first
+proves the Homebrew tap token can read and push to the tap, then cuts the
+GitHub release from that `CHANGELOG.md` section (goreleaser attaches the
+binaries and bumps the tap), and `wyk update` finds it via the GitHub releases
+API. Recovery for a release that published but did not reach the tap is in
+`docs/OPERATOR.md` under Releasing.
 
 ### Versioning (pre-1.0)
 

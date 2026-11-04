@@ -9,8 +9,13 @@ name: release
 # the single source of truth.
 #
 # Requires the HOMEBREW_TAP_GITHUB_TOKEN secret (a fine-grained PAT with
-# contents:write on raylytics/homebrew-wyk) and that tap repo to exist —
-# otherwise the cask-publish step fails the release. See .goreleaser.yaml.
+# contents:write on raylytics/homebrew-wyk) and that tap repo to exist.
+# The first step proves the token can read AND push to the tap before
+# anything is published: goreleaser pushes the cask last, so a bad token
+# used to leave a half-release — GitHub release and assets live, brew
+# still serving the previous version, and only a red run after the fact
+# (v0.8.2, would-you-kindly-geyq). See .goreleaser.yaml and
+# docs/OPERATOR.md "Releasing".
 on:
   push:
     # Match the documented vX.Y.Z contract — require a digit after the `v`
@@ -32,6 +37,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      # Fail here, with nothing published yet, if the tap token is empty,
+      # rejected, or read-only. Never echo the token; only the HTTP status
+      # and the permissions object the API returns are inspected.
+      - name: Verify the Homebrew tap token
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          TAP_REPO: raylytics/homebrew-wyk
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_GITHUB_TOKEN is empty — set the repo secret before tagging (docs/OPERATOR.md, Releasing)"
+            exit 1
+          fi
+          body="$RUNNER_TEMP/tap.json"
+          code="$(curl -sS -o "$body" -w '%{http_code}' \
+            -H "Authorization: Bearer $TAP_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$TAP_REPO")"
+          if [ "$code" != 200 ]; then
+            echo "::error::HOMEBREW_TAP_GITHUB_TOKEN cannot read $TAP_REPO (HTTP $code) — recreate the fine-grained PAT with Contents: read and write on that repo (docs/OPERATOR.md, Releasing)"
+            exit 1
+          fi
+          if [ "$(jq -r '.permissions.push' "$body")" != true ]; then
+            echo "::error::HOMEBREW_TAP_GITHUB_TOKEN can read $TAP_REPO but not push to it — the PAT needs Contents: read and write"
+            exit 1
+          fi
+          echo "tap token OK: read + push on $TAP_REPO"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
