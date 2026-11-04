@@ -30,6 +30,19 @@ GOLANGCI_VERSION := v$(shell awk '$$1 == "golangci-lint" {print $$2}' .tool-vers
 # called stdlib CVEs through a green local gate (would-you-kindly-351g).
 GOVULNCHECK_VERSION := v1.3.0
 
+# Run every Go tool under the toolchain go.mod names, not whatever `go`
+# is on PATH. CI installs the go.mod toolchain (setup-go with
+# go-version-file), so this is the only way the local gate sees the same
+# compiler, stdlib and export-data format. A newer Homebrew Go on PATH
+# used to break `make lint` twice over: golangci-lint panicked on
+# 'file requires newer Go version', then typecheck rejected every stdlib
+# import with 'export data version 5 is greater than maximum supported
+# version 4' (would-you-kindly-ng3j). `?=` keeps an explicit
+# GOTOOLCHAIN from the environment; the first use downloads the
+# toolchain into the module cache once.
+GO_MOD_TOOLCHAIN := go$(shell sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' go.mod)
+export GOTOOLCHAIN ?= $(GO_MOD_TOOLCHAIN)
+
 # Regenerate the markdown snapshots under docs/generated/. Build a
 # fresh binary into /tmp so this target works from a dirty tree
 # without polluting ./bin or relying on `go run` per call (which
@@ -112,6 +125,10 @@ vuln:
 # missing link that let a golangci-lint failure ship unnoticed. Also runs
 # the plugin-skills drift guard (a local check CI doesn't yet run).
 check:
+	@echo "==> toolchain $$(go version | sed 's/^go version //') (GOTOOLCHAIN=$(GOTOOLCHAIN))"; \
+	if [ "$(GOTOOLCHAIN)" != "$(GO_MOD_TOOLCHAIN)" ]; then \
+		echo "check: WARNING GOTOOLCHAIN=$(GOTOOLCHAIN) overrides go.mod's $(GO_MOD_TOOLCHAIN) — results may diverge from CI"; \
+	fi
 	@echo "==> gofmt"; out=$$(gofmt -l .); if [ -n "$$out" ]; then \
 		echo "gofmt: non-conforming files (run \`gofmt -w .\`):"; echo "$$out"; exit 1; fi
 	@$(MAKE) --no-print-directory docs-check
