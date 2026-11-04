@@ -1328,7 +1328,7 @@ func TestCheckBeadsDatabase_NoHistoryFallsBackToMinimalMetadata(t *testing.T) {
 	if !ok || c.status != statusFail {
 		t.Fatalf("expected a FAIL row, got ok=%v %+v", ok, c)
 	}
-	if !strings.Contains(c.detail, `"dolt_database":"my_repo"`) || !strings.Contains(c.detail, "> "+r.Path+"/.beads/metadata.json") {
+	if !strings.Contains(c.detail, `"dolt_database":"my_repo"`) || !strings.Contains(c.detail, "> '"+r.Path+"'/.beads/metadata.json") {
 		t.Errorf("detail should offer a hand-written metadata.json; got %q", c.detail)
 	}
 }
@@ -1367,5 +1367,74 @@ func TestCheckRepo_EmitsDatabaseRowAfterBeads(t *testing.T) {
 	c, ok := checkNamed(checkRepo(r), "bd opens the workspace's database")
 	if !ok || c.status != statusFail {
 		t.Errorf("checkRepo should carry the database FAIL row; got ok=%v %+v", ok, c)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	cases := map[string]string{
+		"/plain/path":      "'/plain/path'",
+		"it's here":        `'it'\''s here'`,
+		`{"a":"b"}`:        `'{"a":"b"}'`,
+		"$(rm -rf x); `y`": "'$(rm -rf x); `y`'",
+	}
+	for in, want := range cases {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+	if short("not a sha") != "" {
+		t.Error("short should drop a non-hex value")
+	}
+}
+
+func TestCheckBeadsDatabase_SuggestedCommandIsOneLine(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	beadsWithDolt(t, r, "", "my_repo")
+	orig := lastTrackedCommit
+	lastTrackedCommit = func(string, string) string { return "" }
+	t.Cleanup(func() { lastTrackedCommit = orig })
+	c, _ := checkBeadsDatabase("repo x", r.Path)
+	if strings.Contains(c.detail, "\n") {
+		t.Errorf("suggested command must not embed a raw newline: %q", c.detail)
+	}
+	if !strings.Contains(c.detail, `printf '%s\n'`) {
+		t.Errorf("printf format should be the two-character escape; got %q", c.detail)
+	}
+}
+
+// TestLastTrackedCommitGit_SkipsTheDeletionCommit reproduces the exact
+// history this check exists for: metadata.json committed, then
+// untracked with `git rm --cached`. The lookup must point at a commit
+// whose tree still has the file, or the suggested `git show` fails
+// and leaves an empty metadata.json behind (roborev #6937).
+func TestLastTrackedCommitGit_SkipsTheDeletionCommit(t *testing.T) {
+	r := docRepo(t, true, true, "")
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", r.Path}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	meta := filepath.Join(r.Path, ".beads", "metadata.json")
+	if err := os.WriteFile(meta, []byte(`{"dolt_database":"my_repo"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".beads/metadata.json")
+	run("commit", "-q", "-m", "track metadata")
+	run("rm", "-q", "--cached", ".beads/metadata.json")
+	run("commit", "-q", "-m", "stop tracking .beads")
+
+	sha := lastTrackedCommitGit(r.Path, ".beads/metadata.json")
+	if sha == "" {
+		t.Fatal("expected a commit")
+	}
+	show := exec.Command("git", "-C", r.Path, "show", sha+":.beads/metadata.json")
+	out, err := show.Output()
+	if err != nil || !strings.Contains(string(out), "my_repo") {
+		t.Fatalf("git show %s:.beads/metadata.json should succeed with the file; err=%v out=%q", sha[:12], err, out)
 	}
 }

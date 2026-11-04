@@ -754,8 +754,14 @@ type MultiBDSource struct {
 }
 
 // fetchProgress is one in-flight (or just-finished) fan-out's tally.
+// gen identifies the fan-out that owns it: a cancelled fetch's
+// goroutines still unwind through progressStep, and without the gen
+// they would count against the fan-out that replaced them (`r` on
+// all while the adopted prefetch runs, a C toggle, a quick
+// ready→human→ready) and show "35/29 repos" (roborev #6937).
 type fetchProgress struct {
 	done, total int
+	gen         uint64
 }
 
 // FetchProgress reports how far the most recent fan-out for p has got:
@@ -768,19 +774,28 @@ func (m *MultiBDSource) FetchProgress(p filter.Preset) (done, total int) {
 	return fp.done, fp.total
 }
 
-func (m *MultiBDSource) progressStart(p filter.Preset, total int) {
+// progressStart opens a new tally for p and returns its generation;
+// any earlier fan-out for p is thereby disowned.
+func (m *MultiBDSource) progressStart(p filter.Preset, total int) uint64 {
 	m.progMu.Lock()
 	defer m.progMu.Unlock()
 	if m.progress == nil {
 		m.progress = make(map[filter.Preset]fetchProgress)
 	}
-	m.progress[p] = fetchProgress{total: total}
+	gen := m.progress[p].gen + 1
+	m.progress[p] = fetchProgress{total: total, gen: gen}
+	return gen
 }
 
-func (m *MultiBDSource) progressStep(p filter.Preset) {
+// progressStep counts one settled sub for the fan-out identified by
+// gen; a step from a superseded fan-out is dropped.
+func (m *MultiBDSource) progressStep(p filter.Preset, gen uint64) {
 	m.progMu.Lock()
 	defer m.progMu.Unlock()
 	fp := m.progress[p]
+	if fp.gen != gen {
+		return
+	}
 	fp.done++
 	m.progress[p] = fp
 }
@@ -991,13 +1006,13 @@ func (m *MultiBDSource) FetchWithSubErrors(ctx context.Context, p filter.Preset)
 	// canceled fetch still unwinds promptly.
 	fetchSem := make(chan struct{}, fetchConcurrency)
 
-	m.progressStart(p, len(m.subs))
+	progGen := m.progressStart(p, len(m.subs))
 	var wg sync.WaitGroup
 	for i, sub := range m.subs {
 		wg.Add(1)
 		go func(i int, sub subRepo) {
 			defer wg.Done()
-			defer m.progressStep(p)
+			defer m.progressStep(p, progGen)
 			// A workspace whose metadata.json is missing or names a
 			// database that isn't on disk makes bd open an EMPTY default
 			// database and answer "no issues" without failing — so the

@@ -1148,12 +1148,20 @@ func capIDs(ids []string) string {
 	return strings.Join(ids[:max], ", ") + fmt.Sprintf(", +%d more", len(ids)-max)
 }
 
-// lastTrackedCommit returns the newest commit in repoPath whose tree
-// held rel, or "" when git has no record of it. Used to turn the
+// lastTrackedCommit returns the newest commit in repoPath whose TREE
+// holds rel, or "" when git has no record of it. Used to turn the
 // metadata.json restore hint into a copy-pasteable command. Swappable
-// so tests don't need a git history.
-var lastTrackedCommit = func(repoPath, rel string) string {
-	out, err := exec.Command("git", "-C", repoPath, "log", "-1", "--format=%H", "--", rel).Output()
+// so unit tests don't need a git history (lastTrackedCommitGit is the
+// real one, tested against a temp repo).
+var lastTrackedCommit = lastTrackedCommitGit
+
+// lastTrackedCommitGit asks git for the last commit that added or
+// modified rel. `--diff-filter=d` excludes deletions: a plain `log -1
+// -- rel` answers with the commit that REMOVED the file — exactly the
+// untracking commit this check exists for — and `git show
+// <that>:rel` then fails (roborev #6937).
+func lastTrackedCommitGit(repoPath, rel string) string {
+	out, err := exec.Command("git", "-C", repoPath, "log", "-1", "--format=%H", "--diff-filter=d", "--", rel).Output()
 	if err != nil {
 		return ""
 	}
@@ -1187,9 +1195,13 @@ func checkBeadsDatabase(prefix, repoPath string) (check, bool) {
 		return check{name: name, status: statusPass, detail: ".beads/embeddeddolt/" + state.Configured}, true
 	}
 	target := mm.Candidates[0]
-	fix := "git -C " + repoPath + " log -1 --format=%H -- .beads/metadata.json  # find the last commit that tracked it, then git show <sha>:.beads/metadata.json > .beads/metadata.json"
+	// Everything interpolated into the suggested command is
+	// shell-quoted: repoPath is whatever the registry holds, and the
+	// JSON payload carries quotes of its own.
+	qpath := shellQuote(repoPath)
+	fix := "git -C " + qpath + " log -1 --format=%H --diff-filter=d -- .beads/metadata.json  # the last commit whose tree has it, then git show <sha>:.beads/metadata.json > .beads/metadata.json"
 	if sha := lastTrackedCommit(repoPath, ".beads/metadata.json"); sha != "" {
-		fix = fmt.Sprintf("(cd %s && git show %s:.beads/metadata.json > .beads/metadata.json", repoPath, short(sha))
+		fix = fmt.Sprintf("(cd %s && git show %s:.beads/metadata.json > .beads/metadata.json", qpath, short(sha))
 		// config.yaml went the same way in the untracking commit;
 		// restore it too when history has it (bd runs without it,
 		// but sync.remote and the other settings live there).
@@ -1198,7 +1210,7 @@ func checkBeadsDatabase(prefix, repoPath string) (check, bool) {
 		}
 		fix += ")"
 	} else if len(mm.Candidates) == 1 {
-		fix = fmt.Sprintf("printf '%%s\n' '%s' > %s/.beads/metadata.json", workspace.MinimalMetadata(target), repoPath)
+		fix = fmt.Sprintf("printf '%%s\\n' %s > %s/.beads/metadata.json", shellQuote(workspace.MinimalMetadata(target)), qpath)
 	}
 	return check{
 		name:   name,
@@ -1207,12 +1219,26 @@ func checkBeadsDatabase(prefix, repoPath string) (check, bool) {
 	}, true
 }
 
-// short abbreviates a full git sha for a copy-pasteable command.
+// short abbreviates a full git sha for a copy-pasteable command; a
+// sha is hex by construction, so no quoting is needed. Anything that
+// is not hex is not a sha and is dropped rather than echoed.
 func short(sha string) string {
+	for _, r := range sha {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return ""
+		}
+	}
 	if len(sha) > 12 {
 		return sha[:12]
 	}
 	return sha
+}
+
+// shellQuote wraps s in single quotes for a POSIX shell, escaping any
+// embedded single quote, so a path or payload pasted from a doctor row
+// is one literal word no matter what it contains.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func checkRepo(r registry.Repo) []check {

@@ -124,3 +124,28 @@ func TestInspectListsDatabasesSortedWithoutLock(t *testing.T) {
 		t.Error("MetadataPresent should be false")
 	}
 }
+
+func TestInspectIgnoresNonIdentifierDirectories(t *testing.T) {
+	// Only names bd itself would create count as databases; anything
+	// else (Dolt's .lock, a stray folder with shell metacharacters) is
+	// neither reported nor echoed into a suggested command.
+	dir := mkWorkspace(t, "", "ok_db", "bad name$(x)", ".hidden")
+	s, err := Inspect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.Databases, ","); got != "ok_db" {
+		t.Errorf("databases = %q, want ok_db", got)
+	}
+}
+
+func TestMismatchMessageStripsControlBytes(t *testing.T) {
+	dir := mkWorkspace(t, "{\x1b[31m", "my_repo")
+	mm := Check(dir)
+	if mm == nil {
+		t.Fatal("expected a mismatch")
+	}
+	if strings.ContainsRune(mm.Error(), 0x1b) {
+		t.Errorf("message leaks an escape byte: %q", mm.Error())
+	}
+}

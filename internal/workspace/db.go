@@ -24,9 +24,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+// dbName is the shape of a Dolt database directory name bd creates
+// (the issue prefix with dashes folded to underscores). Anything else
+// under embeddeddolt is not a database bd would open, so it is
+// ignored rather than echoed into a banner, a doctor row, or a
+// suggested shell command.
+var dbName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // DefaultDatabase is the database name bd falls back to when
 // metadata.json is absent.
@@ -78,7 +86,7 @@ func Inspect(repoPath string) (DBState, error) {
 	entries, err := os.ReadDir(filepath.Join(beadsDir, "embeddeddolt"))
 	if err == nil {
 		for _, e := range entries {
-			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			if !e.IsDir() || !dbName.MatchString(e.Name()) {
 				continue
 			}
 			s.Databases = append(s.Databases, e.Name())
@@ -107,7 +115,7 @@ func (m *Mismatch) Error() string {
 	what := ".beads/metadata.json is missing"
 	switch {
 	case m.MetadataErr != nil:
-		what = ".beads/metadata.json is unreadable (" + m.MetadataErr.Error() + ")"
+		what = ".beads/metadata.json is unreadable (" + strings.Map(printable, m.MetadataErr.Error()) + ")"
 	case m.Configured != "":
 		what = fmt.Sprintf(".beads/metadata.json names database %q, which is not on disk", m.Configured)
 	}
@@ -162,4 +170,13 @@ func MinimalMetadata(database string) string {
 		"dolt_database": database,
 	})
 	return string(b)
+}
+
+// printable drops control characters from text that came from a file
+// on disk before it reaches a terminal line.
+func printable(r rune) rune {
+	if r < 0x20 || r == 0x7f {
+		return -1
+	}
+	return r
 }

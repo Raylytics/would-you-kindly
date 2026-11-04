@@ -222,3 +222,21 @@ func TestMismatchedWorkspaceIsReportedNotFetched(t *testing.T) {
 		t.Fatalf("after restore: issues=%d errs=%v err=%v", len(issues), errs, err)
 	}
 }
+
+func TestSupersededFanOutDoesNotInflateProgress(t *testing.T) {
+	// A fan-out that was replaced (its ctx cancelled, or simply older)
+	// must not count its late-settling subs against the tally of the
+	// fan-out that replaced it (roborev #6937).
+	m := &MultiBDSource{subs: make([]subRepo, 3)}
+	for i := range m.subs {
+		m.subs[i] = subRepo{name: "r", src: &fakeRepoSource{}, branchFn: func(context.Context) string { return "" }}
+	}
+	old := m.progressStart(filter.PresetAll, 3)
+	cur := m.progressStart(filter.PresetAll, 3) // the replacement
+	m.progressStep(filter.PresetAll, old)
+	m.progressStep(filter.PresetAll, old)
+	m.progressStep(filter.PresetAll, cur)
+	if done, total := m.FetchProgress(filter.PresetAll); done != 1 || total != 3 {
+		t.Errorf("stale steps must be dropped: %d/%d, want 1/3", done, total)
+	}
+}
