@@ -299,3 +299,64 @@ func TestFetchControllerSupersetContexts(t *testing.T) {
 		t.Error("supersetLanded should report true once, then false")
 	}
 }
+
+// roborev #6906: leaving all before the adopted prefetch lands must
+// not cancel it — nothing the next preset fetches can land over all
+// rows, and cancelling would strand the session without a superset.
+func TestLeavingAllReturnsAdoptedPrefetchToBackground(t *testing.T) {
+	src := &stubSource{issues: sampleIssues()}
+	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
+	model, _ := m.switchPreset(filter.PresetAll)
+	m = model.(Model)
+	if !m.supersetInFlight() {
+		t.Fatal("setup: the switch to all should have adopted the prefetch")
+	}
+
+	model, cmd := m.switchPreset(filter.PresetBlocked)
+	m = model.(Model)
+	if cmd == nil {
+		t.Error("switch to blocked should dispatch its own fetch")
+	}
+	if !m.supersetInFlight() {
+		t.Fatal("leaving all must keep the prefetch running")
+	}
+
+	// It lands as a background result and fills the superset…
+	superset := manyIssues(6)
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: superset, background: true})
+	m = model.(Model)
+	if m.preset != filter.PresetBlocked || !m.refreshing {
+		t.Errorf("background landing must not touch the blocked view; preset=%s refreshing=%v", m.preset, m.refreshing)
+	}
+	if len(m.presetCache[filter.PresetAll]) != 6 {
+		t.Errorf("prefetch should fill presetCache[all]; got %d", len(m.presetCache[filter.PresetAll]))
+	}
+
+	// …so the next switch back to all is instant.
+	model, _ = m.switchPreset(filter.PresetAll)
+	m = model.(Model)
+	if len(m.all) != 6 || m.rowsStale() {
+		t.Errorf("switch back to all should paint the prefetched superset; rows=%d stale=%v", len(m.all), m.rowsStale())
+	}
+}
+
+func TestFetchControllerUnadopt(t *testing.T) {
+	f := &fetchController{}
+	sctx := f.beginSuperset()
+	if !f.adoptSuperset() {
+		t.Fatal("adopt should succeed")
+	}
+	f.unadoptSuperset()
+	_ = f.begin()
+	if sctx.Err() != nil || !f.supersetInFlight() {
+		t.Error("after unadopt a primary begin must leave the prefetch alone")
+	}
+	// Re-adopting puts it back under supersession.
+	if !f.adoptSuperset() {
+		t.Fatal("re-adopt should succeed")
+	}
+	_ = f.begin()
+	if sctx.Err() == nil || f.supersetInFlight() {
+		t.Error("a begin after re-adoption must cancel the prefetch")
+	}
+}

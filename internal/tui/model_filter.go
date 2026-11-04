@@ -197,6 +197,14 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 	if p == filter.PresetHuman && m.preset != filter.PresetHuman {
 		m.humanReturnPreset = m.preset
 	}
+	// Leaving all while the adopted prefetch is still running: hand
+	// it back to the background BEFORE this switch dispatches, or
+	// fetchCmd's begin would supersede it as if the new fetch served
+	// the all view — cancelling the only superset this session will
+	// get (roborev #6906). It lands into presetCache[all] instead.
+	if m.preset == filter.PresetAll && p != filter.PresetAll && m.fetches != nil {
+		m.fetches.unadoptSuperset()
+	}
 	m.preset = p
 	m.cursor = 0
 	m.scroll = 0

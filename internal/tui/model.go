@@ -1152,6 +1152,19 @@ func (f *fetchController) adoptSuperset() bool {
 	return true
 }
 
+// unadoptSuperset returns an adopted prefetch to the background:
+// the user left the all view, so the next primary dispatch serves
+// another preset and cannot land over all rows — there is nothing
+// for the prefetch to be superseded by, and cancelling it would
+// strand the session without a superset for the rest of its life
+// (roborev #6906). The prefetch keeps running and lands through the
+// background branch as if never adopted. No-op when not adopted.
+func (f *fetchController) unadoptSuperset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.adopted = false
+}
+
 // cancelSuperset ends the in-flight prefetch, if any, without
 // touching the primary fetch.
 func (f *fetchController) cancelSuperset() {
