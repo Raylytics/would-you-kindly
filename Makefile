@@ -101,7 +101,7 @@ plugin-skills-check: plugin-skills
 # output is auto-merged and becomes the GitHub release notes, so it has
 # fixture tests (scripts/changelog_fold_test.py). Needs only python3.
 release-fold-check:
-	@echo "==> release-fold-check"; python3 -m unittest discover -s scripts -p 'changelog_fold_test.py' -q
+	@echo "==> release-fold-check"; python3 -B -m unittest discover -s scripts -p 'changelog_fold_test.py' -q
 
 # golangci-lint at the version .tool-versions pins (.golangci.yml: govet,
 # staticcheck, errcheck, ineffassign, unused), run under the Go toolchain

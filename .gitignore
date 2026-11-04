@@ -51,3 +51,7 @@ HANDOFF*
 bin/
 dist/
 coverage.out
+
+# Python bytecode from scripts/changelog_fold_test.py (make release-fold-check)
+__pycache__/
+*.pyc

@@ -168,7 +168,6 @@ NO_CONTENT_MSG="no changelog entries since the last tag — nothing to release (
 
 if [ "${RELEASE_DRY_RUN:-0}" = 1 ]; then
   tmp="$(mktemp -t CHANGELOG.XXXXXX)"
-  trap 'rm -f "$tmp"' EXIT
   # Step 2 may have bumped version files (non-go stacks); a dry run promises
   # to touch nothing, so restore the tree on every exit path from here on.
   trap 'rm -f "$tmp"; git checkout -q -- . 2>/dev/null || true' EXIT

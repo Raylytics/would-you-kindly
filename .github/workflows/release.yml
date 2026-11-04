@@ -47,7 +47,10 @@ jobs:
       # `permissions` object reports the token OWNER's role, not the PAT's
       # grants). Nothing is created. The token reaches git through a
       # credential helper, never a URL or an argument, so it cannot appear
-      # in logs or the process list.
+      # in logs or the process list. actions/checkout persists this repo's
+      # GITHUB_TOKEN as an http.extraheader in the workspace git config;
+      # it is cleared for the probe, or git would send the wrong token and
+      # get a 403 for the tap instead of asking the helper.
       - name: Verify the Homebrew tap token
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
@@ -65,7 +68,8 @@ jobs:
             echo "::error::HOMEBREW_TAP_GITHUB_TOKEN cannot read $TAP_REPO (HTTP $code) — recreate the fine-grained PAT with Contents: read and write on that repo (docs/OPERATOR.md, Releasing)"
             exit 1
           fi
-          if ! git -c credential.helper= \
+          if ! git -c http.https://github.com/.extraheader= \
+                 -c credential.helper= \
                  -c credential.helper='!f() { echo username=x-access-token; echo "password=$TAP_TOKEN"; }; f' \
                  push --dry-run "https://github.com/$TAP_REPO.git" HEAD:refs/heads/release-preflight-probe >/dev/null 2>"$RUNNER_TEMP/push.err"; then
             sed 's/x-access-token:[^@]*@/x-access-token:***@/' "$RUNNER_TEMP/push.err" >&2
