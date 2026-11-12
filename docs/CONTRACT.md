@@ -81,7 +81,7 @@ agents share a workspace (e.g. Claude and another assistant running
 concurrently, or two sessions of the same agent), they will both see —
 and may both act on — the same inbox items. `wyk-contract/v2` adds the
 `agent-handoff` label as a partial mechanism: an agent can fence off a
-task another agent owns (it renders **AGENT-HANDOFF** and is excluded
+task another agent owns (it renders **OTHER-AGENT** and is excluded
 from the inbox query), with a human expected to orchestrate the overall
 coordination. `wyk-contract/v3` adds the per-identity routing described
 in the next section for the assignment the `agent-handoff` fence can't

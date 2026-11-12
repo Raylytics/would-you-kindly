@@ -93,12 +93,48 @@ func runHook(args []string) int {
 // not a quoted arg to `create`) are not.
 var bdCreateRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+create(?:\\s|$|[;&|)`<>])")
 
-// bdClaimRE matches `bd update … --claim` at a command position, with
-// the same anchoring as bdCreateRE; `[^\n;&|)`]*` keeps the flag inside
-// the one bd invocation. Global flags before the subcommand
-// (`bd --actor x update … --claim`) are deliberately NOT matched: naming
-// an actor is the caller saying who the claim is for.
-var bdClaimRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+update\\s[^\\n;&|)`]*--claim(?:\\s|$|[;&|)`<>])")
+// bdClaimRE matches a `bd … update … --claim` invocation at a command
+// position, with the same anchoring as bdCreateRE. Group 1 is the
+// invocation itself, from `bd` through the claim flag. Between `bd` and
+// `update` it allows bd's global flags (`--json`, `-C dir`, `--actor x`),
+// each optionally followed by one value word; `[^\n;&|)`]*` keeps
+// `--claim` inside the one invocation; `--claim=true` counts as well as
+// the bare flag.
+var bdClaimRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*(bd\\s+(?:-[^\\s;&|)`]+\\s+(?:[^-\\s;&|)`][^\\s;&|)`]*\\s+)?)*?update\\s[^\\n;&|)`]*--claim(?:=[^\\s;&|)`<>]*)?)(?:\\s|$|[;&|)`<>])")
+
+// bdClaimsAsBDActor reports whether the (redacted) command claims an
+// issue under bd's default actor. An invocation that passes --actor,
+// before or after the subcommand, is left alone: naming an actor is the
+// caller saying who the claim is for.
+//
+// Every claim invocation in the command is checked, not just the first:
+// the regex consumes the separator that ends a match, so the search
+// restarts ON that separator — otherwise an exempt claim would hide a
+// bare one chained after it (`bd --actor x update a --claim; bd update
+// b --claim`).
+func bdClaimsAsBDActor(redacted string) bool {
+	for pos := 0; pos < len(redacted); {
+		m := bdClaimRE.FindStringSubmatchIndex(redacted[pos:])
+		if m == nil {
+			return false
+		}
+		// The invocation runs on past the claim flag to the next
+		// separator: `--actor` may follow `--claim`.
+		inv := redacted[pos+m[2]:]
+		if end := strings.IndexAny(inv, "\n;&|)`"); end >= 0 {
+			inv = inv[:end]
+		}
+		if !strings.Contains(inv, "--actor") {
+			return true
+		}
+		next := pos + m[1] - 1 // back onto the separator the match consumed
+		if next <= pos {
+			next = pos + m[1]
+		}
+		pos = next
+	}
+	return false
+}
 
 // allowBDClaimInlineRE is allowBDCreateInlineRE for the claim redirect.
 var allowBDClaimInlineRE = regexp.MustCompile(`(?:^|[\s;&|(])(?:export\s+)?WYK_ALLOW_BD_CLAIM=\S`)
@@ -321,9 +357,6 @@ var allowBDCreateInlineRE = regexp.MustCompile(`(?:^|[\s;&|(])(?:export\s+)?WYK_
 // Anything it can't parse or doesn't recognise is allowed (exit 0): a
 // guard that fails closed would wedge the agent on every Bash call.
 func runHookBDCreateGuard(stdin io.Reader) int {
-	if os.Getenv("WYK_ALLOW_BD_CREATE") != "" {
-		return 0
-	}
 	var in struct {
 		ToolName  string `json:"tool_name"`
 		ToolInput struct {
@@ -342,7 +375,7 @@ func runHookBDCreateGuard(stdin io.Reader) int {
 	// reads it as the person's own claim and shows the agent's work as
 	// HUMAN, in their views (would-you-kindly-5vzu). `wyk claim` claims as the agent. Same
 	// guard, same installed hook: no re-init needed to pick this up.
-	if bdClaimRE.MatchString(redacted) && os.Getenv("WYK_ALLOW_BD_CLAIM") == "" && !allowBDClaimInlineRE.MatchString(redacted) {
+	if bdClaimsAsBDActor(redacted) && os.Getenv("WYK_ALLOW_BD_CLAIM") == "" && !allowBDClaimInlineRE.MatchString(redacted) {
 		fmt.Fprintln(os.Stderr,
 			"Use `wyk claim <id>` instead of `bd update <id> --claim`. Raw bd records "+
 				"the claim under the human's name (git user.name), so the issue shows up as "+
@@ -353,7 +386,10 @@ func runHookBDCreateGuard(stdin io.Reader) int {
 				"(If you genuinely need raw bd, prefix the command with WYK_ALLOW_BD_CLAIM=1.)")
 		return 2
 	}
-	if !bdCreateRE.MatchString(redacted) || allowBDCreateInlineRE.MatchString(redacted) {
+	// Each guard has its own bypass: WYK_ALLOW_BD_CREATE is checked
+	// here, after the claim guard, so allowing raw creates does not
+	// also allow raw claims.
+	if os.Getenv("WYK_ALLOW_BD_CREATE") != "" || !bdCreateRE.MatchString(redacted) || allowBDCreateInlineRE.MatchString(redacted) {
 		return 0
 	}
 	fmt.Fprintln(os.Stderr,

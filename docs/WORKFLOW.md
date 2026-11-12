@@ -43,7 +43,8 @@ it closes the issue (§4).
 
 A `PreToolUse` hook in [`.claude/settings.json`](../.claude/settings.json)
 (`wyk hook bd-create-guard`) redirects a bare `bd create` to `wyk create`
-so the stamps can't be skipped by forgetting.
+so the stamps can't be skipped by forgetting, and a bare
+`bd update <id> --claim` to `wyk claim` so the claim is the agent's.
 
 ## 2. Handing the human-only step back
 
@@ -60,7 +61,7 @@ handed would-you-kindly-2oa to human (327-byte runbook)
 `would-you-kindly-2oa` is a real closed issue in this tracker. Its
 description is a five-step runbook (open the 1Password entry, generate,
 `heroku config:set …`, update the entry, close the issue); its labels are
-`human, src:agent`. The **Owner** column in the TUI renders it `HUMAN`,
+`human, src:agent`. The **Turn** column in the TUI renders it `HUMAN`,
 and `wyk -preset human` (or `tab` in the TUI) shows nothing but rows like
 it.
 

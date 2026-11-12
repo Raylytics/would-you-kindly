@@ -395,8 +395,10 @@ finds it, and seeds the **agent enrichment**: a wyk conventions block in
 the repo's `CLAUDE.md` (so agents know to file plans as bd issues via
 `wyk create` and hand human-only work off with `wyk handoff`), plus a
 **`bd-create-guard` PreToolUse hook** in `.claude/settings.json` that
-redirects an agent's raw `bd create` to `wyk create` — so the session
-actually gets recorded instead of relying on the agent reading the docs.
+redirects an agent's raw `bd create` to `wyk create` (so the session
+actually gets recorded instead of relying on the agent reading the docs)
+and its raw `bd update <id> --claim` to `wyk claim` (so the claim is
+recorded under the agent, not under your git `user.name`).
 Every step is idempotent — re-running is safe. Add `-skills` to also
 install the agent skills; `-skip-claude-md` (covers both enrichment
 pieces) / `-skip-register` / `-skip-bd-init` / `-skip-hook` opt out of
@@ -419,9 +421,12 @@ result.
 >
 > The **`bd-create-guard` is a convention nudge, not a security control.**
 > It steers an agent's `bd create` to `wyk create` so the Session column
-> gets populated, but it is best-effort and trivially bypassable
-> (`WYK_ALLOW_BD_CREATE=1`, a shell variable, a renamed binary, a different
-> tool). Don't rely on it to sandbox what an agent can do to your bd data.
+> gets populated, and `bd update … --claim` to `wyk claim` so an agent's
+> claim is not recorded under your name, but it is best-effort and
+> trivially bypassable (`WYK_ALLOW_BD_CREATE=1` for creates,
+> `WYK_ALLOW_BD_CLAIM=1` for claims, a shell variable, a renamed binary,
+> a different tool). A claim that names its actor
+> (`bd --actor <name> update … --claim`) is let through. Don't rely on it to sandbox what an agent can do to your bd data.
 
 After `wyk init`, every commit whose message contains a
 `Closes:`, `Fixes:`, or `Resolves:` trailer (case-insensitive) auto-
@@ -697,9 +702,9 @@ can leak into the capture.
 
 ![wyk split layout](screenshots/wyk-tui.png)
 
-The default `all` preset in the split layout. The **Owner** column
+The default `all` preset in the split layout. The **Turn** column
 carries the "whose move is it" badge — `HUMAN` for handed-off work,
-`AGENT` for issues the agent filed, `HUMAN-BLOCK` for agent issues
+`AGENT` for issues the agent filed, `WAITING-ON-HUMAN` for agent issues
 blocked on a human — and the right pane is the selected issue's
 runbook, following the cursor.
 

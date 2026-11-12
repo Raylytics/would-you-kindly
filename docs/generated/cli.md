@@ -76,7 +76,7 @@ wyk init -scan ~/Projects # register every bd workspace under a tree
 | `-dry-run` | `false` | print what would happen without writing the hook |
 | `-skip-bd-init` | `false` | do not run `bd init` even if .beads is missing |
 | `-skip-register` | `false` | do not add this repo to ~/.config/wyk/repos.json |
-| `-skip-claude-md` | `false` | do not seed the agent enrichment: wyk's conventions block in CLAUDE.md AND the bd-create-guard PreToolUse hook in .claude/settings.json (which redirects `bd create` to `wyk create`) |
+| `-skip-claude-md` | `false` | do not seed the agent enrichment: wyk's conventions block in CLAUDE.md AND the bd-create-guard PreToolUse hook in .claude/settings.json (which redirects `bd create` to `wyk create` and `bd update --claim` to `wyk claim`) |
 | `-skip-hook` | `false` | do not touch git hooks at all — register and enrich only. Use when another tool owns post-commit and you don't want wyk's auto-close (commits with `Closes: <id>` then won't close anything) |
 | `-scan` | `_(empty)_` | scan this directory tree for existing bd workspaces and register every one found (skips repos already registered, hidden dirs, node_modules, vendor); mutually exclusive with the per-repo init path |
 | `-uninstall` | `false` | remove wyk's post-commit hook (restoring post-commit.pre-wyk if present); refuses on foreign hooks |

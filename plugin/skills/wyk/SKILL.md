@@ -64,8 +64,8 @@ otherwise it silently defaults to AGENT and the human never sees it.
 
 The badge has four states: **HUMAN** (a human must act), **AGENT** (yours),
 **WAITING-ON-HUMAN** (yours but blocked by a human-flagged dep), and
-**AGENT-HANDOFF** (`agent-handoff` label — *another* agent is working it).
-If you see **AGENT-HANDOFF**, do NOT touch that task: a human orchestrates
+**OTHER-AGENT** (`agent-handoff` label — *another* agent is working it).
+If you see **OTHER-AGENT**, do NOT touch that task: a human orchestrates
 the cross-agent coordination, and it's excluded from your inbox for exactly
 this reason. Flag a task that way with `bd label add <id> agent-handoff
 --dolt-auto-commit=on` when you need to fence off work another agent owns.

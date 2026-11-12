@@ -555,7 +555,7 @@ func TestRenderStatsLine_CountsHumanAndMine(t *testing.T) {
 		{ID: "a-1", Labels: []string{"human"}},
 		{ID: "a-2", Labels: []string{"human", "src:agent"}, Assignee: "other"},
 		{ID: "a-3", Labels: []string{"src:agent"}, BlockedByHuman: true},
-		{ID: "a-4", Status: "in_progress", Assignee: "ev"},
+		{ID: "a-4", Status: "in_progress", Assignee: "ev", Metadata: stampedClaim("ev")},
 		{ID: "a-5", Status: "open", Assignee: "ev", Labels: []string{"src:agent"}},
 	}
 	src := &stubSource{issues: issues}
@@ -817,6 +817,12 @@ func TestTruncID(t *testing.T) {
 	}
 }
 
+// stampedClaim is the metadata a wyk claim leaves: what makes an
+// in_progress row "claimed by me" rather than a bare bd claim.
+func stampedClaim(owner string) beads.Metadata {
+	return beads.Metadata{lease.KeyOwner: owner, lease.KeyUntil: "2099-01-01T00:00:00Z"}
+}
+
 func TestResponsibilityBadge_Claims(t *testing.T) {
 	// The Turn column answers "the person's move or an agent's" and
 	// nothing else: no holder name, no expiry.
@@ -841,18 +847,25 @@ func TestResponsibilityBadge_Claims(t *testing.T) {
 		}
 	}
 
-	// The person's own claim is their move — wyk-stamped or a bare bd
-	// one, and whether or not its TTL has run out.
+	// The person's own claim is their move, whether or not its TTL has
+	// run out — but only a claim wyk stamped (`x` in the TUI, `wyk
+	// claim`). A bare bd claim under the same name is what an agent's
+	// raw `bd update --claim` leaves behind, since bd's actor in an
+	// agent's shell is the person's git user.name: that stays AGENT.
 	mineStamped := beads.Issue{Status: "in_progress", Labels: []string{"src:agent"},
 		Metadata: beads.Metadata{lease.KeyOwner: me, lease.KeyUntil: stamp(-time.Hour)}}
+	if got := responsibilityBadgeFor(mineStamped, me); !strings.Contains(got, "HUMAN") || strings.Contains(got, "@") {
+		t.Errorf("my stamped claim should badge HUMAN; got %q", got)
+	}
+	if !isMineRow(mineStamped, me) {
+		t.Error("my stamped claim should be in mine")
+	}
 	mineBare := beads.Issue{Status: "in_progress", Assignee: me, UpdatedAt: now}
-	for name, i := range map[string]beads.Issue{"stamped": mineStamped, "bare": mineBare} {
-		if got := responsibilityBadgeFor(i, me); !strings.Contains(got, "HUMAN") || strings.Contains(got, "@") {
-			t.Errorf("my %s claim should badge HUMAN; got %q", name, got)
-		}
-		if !isMineRow(i, me) {
-			t.Errorf("my %s claim should be in mine", name)
-		}
+	if got := responsibilityBadgeFor(mineBare, me); !strings.Contains(got, "AGENT") {
+		t.Errorf("a bare bd claim under my name should stay AGENT; got %q", got)
+	}
+	if isMineRow(mineBare, me) || isHumanRow(mineBare, me) {
+		t.Error("a bare bd claim under my name must not be in mine or human")
 	}
 
 	// An assignee alone is not a claim: an OPEN agent row with my name
@@ -874,13 +887,13 @@ func TestResponsibilityBadge_Claims(t *testing.T) {
 	if isMineRow(hb, me) {
 		t.Error("WAITING-ON-HUMAN is an agent task, so not in mine")
 	}
-	handoff := mineBare
+	handoff := mineStamped
 	handoff.Labels = []string{"agent-handoff"}
 	if isMineRow(handoff, me) {
 		t.Error("AGENT-HANDOFF is not a human badge, so not in mine")
 	}
 	// No identity: nothing is claimed by me.
-	if got := responsibilityBadgeFor(mineBare, ""); !strings.Contains(got, "AGENT") {
+	if got := responsibilityBadgeFor(mineStamped, ""); !strings.Contains(got, "AGENT") {
 		t.Errorf("with no identity a claim is an agent's; got %q", got)
 	}
 }
