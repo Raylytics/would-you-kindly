@@ -358,7 +358,7 @@ func renderNextText(res nextResult, now time.Time) {
 		if res.Degraded {
 			fmt.Println("nothing to work on from the repos that responded — but some failed, so this may be INCOMPLETE.")
 		} else {
-			fmt.Println("nothing to work on: inbox empty and no ready, unclaimed issues.")
+			fmt.Println("nothing to work on: agent inbox empty and no ready, unclaimed issues.")
 		}
 	} else {
 		multiRepo := false

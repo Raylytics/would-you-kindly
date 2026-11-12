@@ -235,10 +235,10 @@ func TestColumnOrder_OwnerIsSecondFromLeft_LegacyHumanRenameCheck(t *testing.T) 
 	m = model.(Model)
 	m = applyFetched(m, src)
 	out := m.View()
-	oi := strings.Index(out, "Owner")
+	oi := strings.Index(out, "Turn")
 	ri := strings.Index(out, "Repo")
 	if oi < 0 || ri < 0 {
-		t.Fatalf("expected both 'Owner' and 'Repo' headers in view; got:\n%s", out)
+		t.Fatalf("expected both 'Turn' and 'Repo' headers in view; got:\n%s", out)
 	}
 	if oi > ri {
 		t.Errorf("'Owner' header should appear before 'Repo' header in the column row; got Owner at %d, Repo at %d", oi, ri)
@@ -258,10 +258,10 @@ func TestColumnOrder_OwnerHeaderIsSecondFromLeft(t *testing.T) {
 	m = model.(Model)
 	m = applyFetched(m, src)
 	out := m.View()
-	oi := strings.Index(out, "Owner")
+	oi := strings.Index(out, "Turn")
 	ri := strings.Index(out, "Repo")
 	if oi < 0 {
-		t.Errorf("'Owner' header missing from view:\n%s", out)
+		t.Errorf("'Turn' header missing from view:\n%s", out)
 	}
 	if oi > ri {
 		t.Errorf("'Owner' should appear before 'Repo'; got Owner=%d Repo=%d", oi, ri)
@@ -354,7 +354,7 @@ func TestColumnsOverlay_MultiOnlySlotInertInSingleRepo(t *testing.T) {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = model.(Model)
 	}
-	if len(m.colsHidden) != 0 {
+	if m.colsHidden[colIDRepo] || m.colsHidden[colIDBranch] {
 		t.Errorf("multi-only slot toggles should be no-ops in single-repo mode; got %v", m.colsHidden)
 	}
 

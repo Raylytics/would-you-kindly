@@ -24,7 +24,7 @@ import (
 // Focus follows mode: modeList = list focused (pane is a live preview),
 // modeDetail = pane focused (the existing detail keys — a/d/n/c, tab
 // links, j/k scroll — work unchanged; esc returns to the list). Below
-// the size threshold, or with the pane hidden via `p`, the stacked
+// the size threshold, or with the pane hidden via `L`, the stacked
 // single-column layout is exactly what it was before.
 
 // layoutPref is the user's split-vs-stacked choice, persisted in
@@ -33,7 +33,7 @@ type layoutPref int
 
 const (
 	layoutAuto    layoutPref = iota // split when the terminal fits splitMinWidth×splitMinHeight
-	layoutStacked                   // never split (pane hidden via `p`)
+	layoutStacked                   // never split (pane hidden via `L`)
 	layoutSplit                     // split whenever the terminal clears the smaller forced floor
 )
 
@@ -277,14 +277,15 @@ func (m Model) handleDetailFollow(msg detailFollowMsg) (tea.Model, tea.Cmd) {
 	return m, m.detailEnrichCmd(m.detailIssue)
 }
 
-// toggleLayout is the `p` key: hide the pane (stacked) or show it. On a
+// toggleLayout is the `L` key (roborev's layout toggle; `p` is a
+// silent alias): hide the pane (stacked) or show it. On a
 // terminal below the auto breakpoint, showing forces the split down to
 // the smaller floor; below even that, the pref is left alone and the
 // status line says why nothing happened.
 func (m Model) toggleLayout() (tea.Model, tea.Cmd) {
 	if m.splitActive() {
 		m.layoutPref = layoutStacked
-		m.setStatus("detail pane hidden — p shows it again")
+		m.setStatus("detail pane hidden — L shows it again")
 		return m, nil
 	}
 	if m.splitFits() {
@@ -296,7 +297,7 @@ func (m Model) toggleLayout() (tea.Model, tea.Cmd) {
 		m.setStatus(fmt.Sprintf("terminal too small for a detail pane (needs at least %d×%d)", splitForceMinWidth, splitForceMinHeight))
 		return m, nil
 	}
-	m.setStatus("detail pane shown — ⏎ focuses it, esc returns, p hides it")
+	m.setStatus("detail pane shown — ⏎ focuses it, esc returns, L hides it")
 	return m, nil
 }
 
@@ -406,7 +407,7 @@ func (m Model) paneHeaderLines(i beads.Issue, width int) []string {
 		return nil
 	}
 	var lines []string
-	if badge := responsibilityBadgeFor(i); badge != "" {
+	if badge := responsibilityBadgeFor(i, m.me); badge != "" {
 		lines = append(lines, badge)
 	}
 	title := sanitizeInline(i.Title)
@@ -501,7 +502,7 @@ func fitCell(s string, width int) string {
 // while the list or the pane has focus — prompts drop mouse input as
 // they do in the stacked layout.
 func (m Model) handleSplitMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeList && m.mode != modeDetail {
+	if m.mode != modeList && m.mode != modeDetail && m.mode != modeFilter {
 		return m, nil
 	}
 	g := m.splitGeometry()
@@ -523,11 +524,21 @@ func (m Model) handleSplitMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.detailVP, cmd = m.detailVP.Update(msg)
 			return m, cmd
 		case tea.MouseButtonLeft:
+			if m.mode == modeFilter && m.detailIssue.ID != "" {
+				// Focusing the pane leaves the list: close the
+				// prompt (query kept) and land in the pane.
+				closed, closeCmd := m.closeFilterPrompt()
+				closed.mode = modeDetail
+				return closed, closeCmd
+			}
 			if m.mode == modeList && m.detailIssue.ID != "" {
 				m.mode = modeDetail
 			}
 		}
 		return m, nil
+	}
+	if m.mode == modeFilter {
+		return m.mouseInFilter(msg, g.listW)
 	}
 	allowOpen := true
 	if m.mode == modeDetail {

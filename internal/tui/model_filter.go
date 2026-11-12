@@ -59,7 +59,7 @@ func issuesMatchingPreset(snapshot []beads.Issue, have, want filter.Preset, me s
 	var keep func(beads.Issue) bool
 	switch want {
 	case filter.PresetHuman:
-		keep = func(i beads.Issue) bool { return i.IsHuman() && i.Status != "closed" }
+		keep = func(i beads.Issue) bool { return isHumanRow(i, me) && i.Status != "closed" }
 	case filter.PresetBlocked:
 		open := openIDSet(snapshot)
 		keep = func(i beads.Issue) bool { return isBlockedRow(i, open) }
@@ -69,13 +69,10 @@ func issuesMatchingPreset(snapshot []beads.Issue, have, want filter.Preset, me s
 	case filter.PresetReview:
 		keep = func(i beads.Issue) bool { return i.HasLabel(filter.ReviewLabel) && i.Status != "closed" }
 	case filter.PresetMine:
-		if me == "" {
-			// QueryWithClosed degrades `mine` with no identity to
-			// the non-closed set.
-			keep = func(i beads.Issue) bool { return i.Status != "closed" }
-			break
-		}
-		keep = func(i beads.Issue) bool { return i.Assignee == me && i.Status != "closed" }
+		// By badge, not by assignee (isMineRow). The all snapshot is
+		// already marked for HUMAN-BLOCK, so this derives exactly what
+		// a mine fetch returns.
+		keep = func(i beads.Issue) bool { return isMineRow(i, me) && i.Status != "closed" }
 	default:
 		return nil, false
 	}
@@ -172,7 +169,7 @@ func (m Model) jumpToHuman(dir int) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	m.setStatus("no human-flagged issues in this view")
+	m.setStatus("nothing waiting on you in this view")
 	return m, nil
 }
 
@@ -200,15 +197,6 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 	// flight still refreshes, as before.
 	if p == m.preset && m.refreshing {
 		return m, nil
-	}
-	// Record the h-toggle's return target on ANY transition into the
-	// human view — h, tab, the :preset palette — not just the h key,
-	// so toggling out always returns to where the user actually came
-	// from rather than a target recorded on an older h trip
-	// (roborev #2061/#2062). Still only on the way IN, so a stray
-	// double-h can't strand the target on "human".
-	if p == filter.PresetHuman && m.preset != filter.PresetHuman {
-		m.humanReturnPreset = m.preset
 	}
 	// Leaving all while the adopted prefetch is still running: hand
 	// it back to the background BEFORE this switch dispatches, or
@@ -312,10 +300,14 @@ func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
 		return m.quitNow()
 	}
-	// Cursor movement stays live while the prompt is open — the list
-	// narrows as the user types, and picking a row shouldn't require
-	// closing the prompt first. Arrows (plus emacs-style ctrl+n/p; j/k
-	// are text here) move the selection; the central Update wrapper's
+	// The prompt owns the keyboard only for what is TEXT: printable
+	// characters and the editing keys go to the query. Everything else
+	// the list can do stays available, in one of two ways.
+	//
+	// Navigation runs with the prompt still open — the list narrows as
+	// the user types, and picking a row shouldn't require closing the
+	// prompt first. Arrows, emacs-style ctrl+n/p and pgup/pgdn move the
+	// selection (j/k are text here); the central Update wrapper's
 	// followCursor call keeps the split pane tracking it.
 	switch msg.Type {
 	case tea.KeyUp, tea.KeyCtrlP:
@@ -330,50 +322,37 @@ func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.ensureCursorVisible()
 		return m, nil
-	}
-	// esc and enter close the prompt and KEEP the query. The filter
-	// already applies live as the user types, so closing is just
-	// "done typing" — no separate apply step, and no way to lose the
-	// filter by reaching for the wrong key. The status bar's
-	// filter:"…" chip explains the narrowed list once the prompt is
-	// gone, and esc in the list (or / + clearing the text) drops it.
-	// / closes too, but only on an empty input: once there's text it
-	// types a literal slash, since branches (feat/x) and paths in
-	// descriptions are matched fields that need one.
-	if msg.Type == tea.KeyEsc || msg.Type == tea.KeyEnter ||
-		(keyHit(msg, m.keys.Filter) && m.input.Value() == "") {
-		// Trim once so the lookup key, the applied query, and the
-		// status banner all agree — a stray trailing space on
-		// "@nope " used to keep the raw value as the literal
-		// query while the banner reported the trimmed form.
-		raw := strings.TrimSpace(m.input.Value())
-		// Alias expansion: a value of `@name` swaps the query
-		// for the saved alias before applying. A miss keeps the
-		// raw `@name` as a literal fuzzy query (so a row with
-		// `@name` in its title still matches) and surfaces a
-		// status banner so the user knows the alias didn't
-		// resolve. Multi-word values starting with `@` (e.g.
-		// "@blocked something") are not expanded — keeps the
-		// rule narrow and predictable.
-		if q, ok := m.filterAliases.Lookup(raw); ok {
-			m.query = q
-		} else {
-			m.query = raw
-			if strings.HasPrefix(raw, "@") {
-				m.setStatus("no filter alias for " + raw)
-			}
-		}
-		m.mode = modeList
-		m.input.Blur()
-		m.recomputeVisible()
+	case tea.KeyPgDown:
+		m.cursor = max(0, min(len(m.visible)-1, m.cursor+max(1, m.bodyHeight())))
 		m.ensureCursorVisible()
-		// A widened filter can pull in rows whose deps aren't cached
-		// under an active deps sort; resolve them (nil Cmd otherwise).
-		depCmd := m.maybeResolveDeps()
-		if m.status != "" {
-			return m, tea.Batch(flashClearCmd(m.statusGen), depCmd)
-		}
-		return m, depCmd
+		return m, nil
+	case tea.KeyPgUp:
+		m.cursor = max(0, m.cursor-max(1, m.bodyHeight()))
+		m.ensureCursorVisible()
+		return m, nil
+	case tea.KeyTab, tea.KeyCtrlZ:
+		// An action that cannot happen WITH the prompt up — moving to
+		// the next view, undoing the last close — closes it (the query
+		// stays applied) and then runs, instead of being swallowed by
+		// the text input. These two are the list's only other
+		// non-text keys.
+		closed, closeCmd := m.closeFilterPrompt()
+		next, actCmd := closed.updateList(msg)
+		return next, tea.Batch(closeCmd, actCmd)
+	}
+	// esc and enter close the prompt and KEEP the query. (enter is
+	// "done typing", not "open the row": it has always meant that here,
+	// and a second enter opens.) The filter already
+	// applies live as the user types, so closing is just "done typing"
+	// — no separate apply step, and no way to lose the filter by
+	// reaching for the wrong key. The status bar's filter:"…" chip
+	// explains the narrowed list once the prompt is gone, and esc in
+	// the list (or / + clearing the text) drops it. / closes too, but
+	// only on an empty input: once there's text it types a literal
+	// slash, since branches (feat/x) and paths in descriptions are
+	// matched fields that need one.
+	if msg.Type == tea.KeyEsc || msg.Type == tea.KeyEnter || (msg.String() == "/" && m.input.Value() == "") {
+		return m.closeFilterPrompt()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -381,6 +360,43 @@ func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.recomputeVisible()
 	m.ensureCursorVisible()
 	return m, tea.Batch(cmd, m.maybeResolveDeps())
+}
+
+// closeFilterPrompt leaves the filter prompt for the list, keeping the
+// typed query applied.
+func (m Model) closeFilterPrompt() (Model, tea.Cmd) {
+	// Trim once so the lookup key, the applied query, and the
+	// status banner all agree — a stray trailing space on
+	// "@nope " used to keep the raw value as the literal
+	// query while the banner reported the trimmed form.
+	raw := strings.TrimSpace(m.input.Value())
+	// Alias expansion: a value of `@name` swaps the query
+	// for the saved alias before applying. A miss keeps the
+	// raw `@name` as a literal fuzzy query (so a row with
+	// `@name` in its title still matches) and surfaces a
+	// status banner so the user knows the alias didn't
+	// resolve. Multi-word values starting with `@` (e.g.
+	// "@blocked something") are not expanded — keeps the
+	// rule narrow and predictable.
+	if q, ok := m.filterAliases.Lookup(raw); ok {
+		m.query = q
+	} else {
+		m.query = raw
+		if strings.HasPrefix(raw, "@") {
+			m.setStatus("no filter alias for " + raw)
+		}
+	}
+	m.mode = modeList
+	m.input.Blur()
+	m.recomputeVisible()
+	m.ensureCursorVisible()
+	// A widened filter can pull in rows whose deps aren't cached
+	// under an active deps sort; resolve them (nil Cmd otherwise).
+	depCmd := m.maybeResolveDeps()
+	if m.status != "" {
+		return m, tea.Batch(flashClearCmd(m.statusGen), depCmd)
+	}
+	return m, depCmd
 }
 
 // recomputeVisible applies the text filter to m.all. The TITLE is matched

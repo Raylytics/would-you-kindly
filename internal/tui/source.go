@@ -93,6 +93,16 @@ const (
 	// while a `blocks` dependency is still open
 	// (would-you-kindly-p00h.3).
 	fetchBlocked
+	// fetchMine is `bd list` (or `--all` with IncludeClosed) reduced to
+	// the rows whose Turn badge is a human one (isMineRow). No bd query
+	// can express it: HUMAN-BLOCK is computed from dependency edges, and
+	// the old `assignee=<me>` query put agents' rows in the person's
+	// view whenever bd recorded their name on a claim.
+	fetchMine
+	// fetchHuman is the same list reduced to the rows badged HUMAN
+	// (isHumanRow): the `human` label, plus what the person claimed
+	// for themselves — a claim no `label=human` query would find.
+	fetchHuman
 )
 
 // pickFetchCall resolves the preset + flags to a bd subcommand
@@ -113,6 +123,10 @@ func (s *BDSource) pickFetchCall(p filter.Preset) (fetchCall, string) {
 		// work. IncludeClosed has no effect: a closed issue is never
 		// blocked, and its blockers no longer block.
 		return fetchBlocked, ""
+	case filter.PresetMine:
+		return fetchMine, ""
+	case filter.PresetHuman:
+		return fetchHuman, ""
 	case filter.PresetAll:
 		// "all" in the TUI means "all non-closed" by default —
 		// opening wyk should show actionable work, not the full
@@ -160,12 +174,31 @@ func (s *BDSource) Fetch(ctx context.Context, p filter.Preset) ([]beads.Issue, e
 		if err == nil {
 			issues = filterBlocked(issues)
 		}
+	case fetchMine, fetchHuman:
+		if s.IncludeClosed {
+			issues, err = s.Client.ListAll(ctx)
+		} else {
+			issues, err = s.Client.List(ctx)
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
 	decorateIssues(issues, s.Name, func() string { return gitBranch(ctx, s.Client.Dir) })
 	markBlockedByHuman(ctx, s.Client, issues, s.DepSem)
+	if call == fetchMine || call == fetchHuman {
+		keep := isMineRow
+		if call == fetchHuman {
+			keep = isHumanRow
+		}
+		kept := issues[:0]
+		for _, i := range issues {
+			if keep(i, s.Me) {
+				kept = append(kept, i)
+			}
+		}
+		issues = kept
+	}
 	return issues, nil
 }
 
@@ -271,9 +304,16 @@ func fetchRetryBackoff(i int) time.Duration {
 	return fetchRetryBaseBackoff + time.Duration(i%fetchConcurrency)*80*time.Millisecond
 }
 
-// markBlockedByHuman stamps Issue.BlockedByHuman=true on every
-// candidate issue (src:agent + NOT human + DependencyCount > 0) whose
-// blocker set includes a human-labeled task — the HUMAN-BLOCK badge.
+// markBlockedByHuman stamps Issue.BlockedByHuman=true on every agent
+// task that is blocked by a human task — the HUMAN-BLOCK badge. Spelled
+// out, all three must hold:
+//
+//   - the row is an agent task: not human-labelled, not closed (whether
+//     or not it carries src:agent — an unlabelled row is AGENT too);
+//   - it depends on another issue through a `blocks` edge — parent-child,
+//     related, discovered-from and the like do not gate work;
+//   - that blocker is a human task that is still open. A closed human
+//     task has stopped blocking anything.
 //
 // It costs at most TWO bd subprocesses for the whole slice: one
 // batched `bd dep list id1 id2 …` for the edges, and one batched
@@ -334,7 +374,7 @@ func markBlockedByHuman(ctx context.Context, c depLister, issues []beads.Issue, 
 	known := make(map[string]bool, len(issues))
 	for i := range issues {
 		known[issues[i].ID] = true
-		if issues[i].IsHuman() {
+		if isOpenHumanTask(issues[i]) {
 			human[issues[i].ID] = true
 		}
 	}
@@ -397,7 +437,7 @@ func markBlockedByHuman(ctx context.Context, c depLister, issues []beads.Issue, 
 					defer mu.Unlock()
 					for _, b := range single {
 						known[b.ID] = true
-						if b.IsHuman() {
+						if isOpenHumanTask(b) {
 							human[b.ID] = true
 						}
 						deps[id] = append(deps[id], beads.Dependency{IssueID: id, DependsOnID: b.ID})
@@ -434,7 +474,7 @@ func markBlockedByHuman(ctx context.Context, c depLister, issues []beads.Issue, 
 		withSem(func() { blockers, err = c.ListByIDs(ctx, unknown) })
 		if err == nil {
 			for _, b := range blockers {
-				if b.IsHuman() {
+				if isOpenHumanTask(b) {
 					human[b.ID] = true
 				}
 			}
@@ -443,7 +483,9 @@ func markBlockedByHuman(ctx context.Context, c depLister, issues []beads.Issue, 
 
 	for _, i := range candidates {
 		for _, d := range deps[issues[i].ID] {
-			if human[d.DependsOnID] {
+			// Only a `blocks` edge gates work; an untyped edge is one
+			// (bd's default, and what the per-issue fallback yields).
+			if (d.Type == "" || d.Type == "blocks") && human[d.DependsOnID] {
 				issues[i].BlockedByHuman = true
 				break
 			}
@@ -452,11 +494,18 @@ func markBlockedByHuman(ctx context.Context, c depLister, issues []beads.Issue, 
 }
 
 // isAgentInboxCandidate reports whether the issue is in scope for
-// the HUMAN-BLOCK dep-aware check: src:agent (the agent owns it),
-// NOT human-flagged (so the badge isn't HUMAN already), and has
-// at least one dependency (no point shelling out otherwise).
+// the HUMAN-BLOCK dep-aware check: an agent task (NOT human-flagged —
+// with or without src:agent, since an unlabelled row is AGENT too),
+// still open, with at least one dependency (no point shelling out
+// otherwise).
 func isAgentInboxCandidate(i beads.Issue) bool {
-	return i.HasLabel("src:agent") && !i.IsHuman() && i.DependencyCount > 0
+	return !i.IsHuman() && i.Status != "closed" && i.DependencyCount > 0
+}
+
+// isOpenHumanTask is the blocker half of HUMAN-BLOCK: a human task that
+// is not closed. Once the person closes it, it blocks nothing.
+func isOpenHumanTask(i beads.Issue) bool {
+	return i.IsHuman() && i.Status != "closed"
 }
 
 // decorateIssues stamps every issue with Repo=name and a lazily-
@@ -550,8 +599,11 @@ func (s *BDSource) Note(ctx context.Context, i beads.Issue, text string) error {
 // the orphan case never makes it to bd.
 func (s *BDSource) Create(ctx context.Context, _ /* repo */, title, assignee string) (string, error) {
 	return s.Client.Create(ctx, beads.CreateOptions{
-		Title:     title,
-		Labels:    []string{"src:human"},
+		Title: title,
+		// `N` means "a task for me": filed by a person (src:human) AND
+		// waiting on one (human), so it is badged HUMAN and lands in the
+		// human and mine views.
+		Labels:    []string{"src:human", "human"},
 		IssueType: "task",
 		Assignee:  assignee,
 	})

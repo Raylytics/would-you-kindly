@@ -117,9 +117,18 @@ func (m Model) persistColumns() error {
 			hidden = append(hidden, c.ID)
 		}
 	}
+	// A default-hidden column the user switched on has to be recorded
+	// as shown, or the next launch would hide it again.
+	var shown []string
+	for _, id := range uiconfig.DefaultHidden {
+		if !m.colsHidden[id] {
+			shown = append(shown, id)
+		}
+	}
 	return uiconfig.Save(m.uiConfigPath, uiconfig.Config{
 		Version:          uiconfig.CurrentVersion,
 		HiddenColumns:    hidden,
+		ShownColumns:     shown,
 		PriorityEmphasis: m.priorityEmphasis,
 	})
 }
@@ -220,7 +229,7 @@ func (m Model) viewHelp() string {
 	b.WriteString(helpStyle.Render("  second click opens it; click a column header to sort (again to\n"))
 	b.WriteString(helpStyle.Render("  reverse); click or drag the scrollbar, or the ↑/↓ hints, to page.\n"))
 	b.WriteString(helpStyle.Render("  Split layout (140×36+): the pane follows the cursor; ⏎ focuses it,\n"))
-	b.WriteString(helpStyle.Render("  esc returns, p hides/shows it. The wheel scrolls the pane it's over.\n"))
+	b.WriteString(helpStyle.Render("  esc returns, L hides/shows it. The wheel scrolls the pane it's over.\n"))
 	b.WriteString(helpStyle.Render("  The detail view releases the mouse automatically so click-drag\n"))
 	b.WriteString(helpStyle.Render("  selects text; m toggles capture everywhere (shift/option-drag\n"))
 	b.WriteString(helpStyle.Render("  also reaches native selection while captured).\n"))
@@ -241,40 +250,38 @@ func (m Model) viewHelp() string {
 		gloss   string
 	}{
 		{"open", "open", "available for work"},
-		{"wip", "in_progress", "in progress (abbreviated in the table)"},
+		{"in_progress", "in_progress", "someone has claimed it and is working on it"},
 		{"hooked", "hooked", "attached to an agent's hook — another agent is on it"},
-		{"blocked", "blocked", "has an open dependency or is human-blocked"},
-		{"deferred", "deferred", "hidden from `bd ready` until a date (set via `d`)"},
-		{"pinned", "pinned", "persistent; stays open indefinitely"},
+		{"blocked", "blocked", "waiting on another task"},
+		{"deferred", "deferred", "put off until a date (set via `d`); hidden from `can start`"},
+		{"pinned", "pinned", "kept open on purpose; never finishes"},
 		{"closed", "closed", "done; strikethrough"},
 	}
 	for _, e := range legend {
-		styled := statusStyleFor(e.raw).Render(fmt.Sprintf("%-9s", e.display))
+		styled := statusStyleFor(e.raw).Render(fmt.Sprintf("%-11s", e.display))
 		fmt.Fprintf(&b, "  %s  %s\n", styled, helpStyle.Render(e.gloss))
 	}
 	b.WriteString("\n")
 
-	// Owner column legend — the four "whose move is it" badges, rendered
+	// Turn column legend — the "whose move is it" badges, rendered
 	// with their real table styles. This is the product's central
 	// concept and was previously only explained in the README, leaving a
 	// HUMAN-BLOCK / AGENT-HANDOFF badge undecodable in-app
 	// (would-you-kindly-5hy8).
-	b.WriteString(detailLabelStyle.Render("Owner column"))
+	b.WriteString(detailLabelStyle.Render("Turn column"))
 	b.WriteString("\n")
 	ownerLegend := []struct {
 		styled string
 		plain  string
 		gloss  string
 	}{
-		{humanBadge.Render("HUMAN"), "HUMAN", "your move — a human must act (the `human` label)"},
-		{agentBadge.Render("AGENT"), "AGENT", "the agent's move (the default — no human label)"},
-		{humanBlockBadge.Render("HUMAN-BLOCK"), "HUMAN-BLOCK", "agent task blocked by a human-flagged dependency"},
-		{agentHandoffBadge.Render("AGENT-HANDOFF"), "AGENT-HANDOFF", "another agent owns it; a human coordinates — don't touch"},
-		{claimedBadge.Render("@name"), "@name", "checked out by that agent identity (`wyk claim`); lapses unless renewed"},
-		{expiredBadge.Render("EXPIRED"), "EXPIRED", "its holder stopped renewing — claimable by takeover (`wyk next`)"},
+		{humanBadge.Render("HUMAN"), "HUMAN", "your move — the `human` label, or a task you claimed (x)"},
+		{agentBadge.Render("AGENT"), "AGENT", "an agent's move, waiting or in progress (the default)"},
+		{humanBlockBadge.Render("WAITING-ON-HUMAN"), "WAITING-ON-HUMAN", "an agent task blocked by a human task that is still open"},
+		{agentHandoffBadge.Render("OTHER-AGENT"), "OTHER-AGENT", "multi-agent setups only: reserved for another agent (the `agent-handoff` label)"},
 	}
 	for _, e := range ownerLegend {
-		pad := strings.Repeat(" ", max(0, len("AGENT-HANDOFF")-len(e.plain)))
+		pad := strings.Repeat(" ", max(0, len("WAITING-ON-HUMAN")-len(e.plain)))
 		fmt.Fprintf(&b, "  %s%s  %s\n", e.styled, pad, helpStyle.Render(e.gloss))
 	}
 	b.WriteString("\n")
@@ -532,16 +539,16 @@ func (m Model) listBottomChrome() string {
 // computeColWidths sizes the column to the widest ID in view, capped
 // by maxIDWidth. The const survives as the narrow-terminal floor.
 const (
-	colResp    = 15 // responsibility column: " AGENT ", " HUMAN ", " HUMAN-BLOCK ", " AGENT-HANDOFF ", or blank. 15 = " AGENT-HANDOFF " visual width (Padding(0,1) + 13-char content), the widest variant. Shorter badges get trailing whitespace. Placed second-from-left to put the most important "whose move is it" signal where the eye lands first.
+	colResp    = 18 // Turn column: " AGENT ", " HUMAN ", " OTHER-AGENT ", " WAITING-ON-HUMAN ". 18 = the widest badge (16 chars + Padding(0,1)). Shorter badges get trailing whitespace. Placed second-from-left to put the "whose move is it" signal where the eye lands first.
 	colRepo    = 18
 	colBranch  = 10
 	colID      = 12
 	idHardMax  = 40 // absolute ceiling for the content-sized ID column: fits the longest real workspace-prefixed ID seen in practice ("louisville-open-data-expenditure-bot-4jm") without letting a pathological one run away with the row. See maxIDWidth.
 	colType    = 4
-	colStatus  = 8
-	colPrio    = 9 // wide enough for the "Priority" header plus its sort-arrow ("Priority↑" = 9), like colUpdated holds "Updated↓". Values ("P0".."P4") are 2 chars and left-align in the slack.
-	colUpdated = 8 // 8 chars so the "Updated↓" sort-arrow decoration fits without overflowing into the Title column. relTime values ("4h ago", "2 weeks", etc.) are all ≤ 7 chars so the extra slack is harmless when no sort is active.
-	colSession = 8 // first 8 chars of the Claude session UUID that filed the issue (via `wyk create`); enough to recognise/disambiguate sessions at a glance. Header "Session" is 7.
+	colStatus  = 11 // "in_progress", bd's longest status, unabbreviated
+	colPrio    = 9  // wide enough for the "Priority" header plus its sort-arrow ("Priority↑" = 9), like colUpdated holds "Updated↓". Values ("P0".."P4") are 2 chars and left-align in the slack.
+	colUpdated = 8  // 8 chars so the "Updated↓" sort-arrow decoration fits without overflowing into the Title column. relTime values ("4h ago", "2 weeks", etc.) are all ≤ 7 chars so the extra slack is harmless when no sort is active.
+	colSession = 8  // first 8 chars of the Claude session UUID that filed the issue (via `wyk create`); enough to recognise/disambiguate sessions at a glance. Header "Session" is 7.
 )
 
 // reviewMarkGlyph is the per-row provenance marker prefixed (with a trailing
@@ -587,7 +594,7 @@ func (m Model) computeColWidths(rows []beads.Issue) colWidths {
 		session: hSess,
 	}
 	for _, i := range rows {
-		w.owner = max(w.owner, lipgloss.Width(responsibilityBadgeFor(i)))
+		w.owner = max(w.owner, lipgloss.Width(responsibilityBadgeFor(i, m.me)))
 		w.repo = max(w.repo, lipgloss.Width(i.Repo))
 		w.branch = max(w.branch, lipgloss.Width(i.Branch))
 		w.id = max(w.id, lipgloss.Width(m.displayID(i)))
@@ -602,7 +609,7 @@ func (m Model) computeColWidths(rows []beads.Issue) colWidths {
 	w.branch = min(w.branch, colBranch+6) // a little more room than the old fixed 10 for "docs/…" branches
 	w.id = min(w.id, m.maxIDWidth())
 	w.typ = min(w.typ, colType+2)
-	w.status = min(w.status, colStatus+1)
+	w.status = min(w.status, colStatus)
 	w.session = min(w.session, colSession)
 	return w
 }
@@ -744,7 +751,7 @@ type headerCell struct {
 func (m Model) headerCells() []headerCell {
 	var cells []headerCell
 	if m.colVisible(colIDOwner) {
-		cells = append(cells, headerCell{label: "Owner", width: m.cw.owner})
+		cells = append(cells, headerCell{label: "Turn", width: m.cw.owner})
 	}
 	if m.isMultiRepo() {
 		if m.colVisible(colIDRepo) {
@@ -851,7 +858,7 @@ func (m Model) renderRow(i beads.Issue, selected bool) string {
 	var b strings.Builder
 	b.WriteString(cursor)
 	if m.colVisible(colIDOwner) {
-		b.WriteString(paddedResponsibilityBadge(i, m.cw.owner))
+		b.WriteString(paddedResponsibilityBadge(i, m.me, m.cw.owner))
 		b.WriteString(sep)
 	}
 	if m.isMultiRepo() {
@@ -1148,8 +1155,8 @@ func (m Model) titleBudget() int {
 // styled badge padded out to the same visual width with trailing
 // blanks. We can't just %-*s the badge string because lipgloss
 // escape codes would be counted as visual width by fmt.
-func paddedResponsibilityBadge(i beads.Issue, width int) string {
-	badge := responsibilityBadgeFor(i)
+func paddedResponsibilityBadge(i beads.Issue, me string, width int) string {
+	badge := responsibilityBadgeFor(i, me)
 	if badge == "" {
 		return strings.Repeat(" ", width)
 	}
@@ -1160,66 +1167,85 @@ func paddedResponsibilityBadge(i beads.Issue, width int) string {
 	return badge
 }
 
-// responsibilityBadgeFor returns the badge for the "Owner" column,
-// telling the reader whose move it is. The badge is NEVER blank:
-//   - has `human` label → plain "HUMAN" (the human-needs-to-act
-//     signal trumps everything else; src distinction is dropped —
-//     a glance at the column should give a yes/no answer, not a
-//     three-way categorisation that buries the lede)
-//   - has `agent-handoff` label → "AGENT-HANDOFF" — another agent owns
-//     this; THIS agent must not interfere, a human orchestrates the
-//     coordination. Ranks above HUMAN-BLOCK/AGENT because it's an
-//     explicit, deliberate flag, not a computed state.
-//   - blocked by a human-flagged dep → "HUMAN-BLOCK"
-//   - anything else → AGENT. A null owner (no `src:`/`human` label at
-//     all) DEFAULTS to AGENT — a task with no explicit owner is treated
-//     as agent-owned rather than rendering an empty column.
-func responsibilityBadgeFor(i beads.Issue) string {
+// responsibilityBadgeFor returns the badge for the "Turn" column,
+// telling the reader whose move it is: the person's or an agent's. The
+// badge is NEVER blank, and it never shows a name or a time limit — wyk
+// is run by one person with their own agents, so "who exactly" is not
+// the question the column answers.
+//
+//   - has `human` label → "HUMAN" (the human-needs-to-act signal trumps
+//     everything else)
+//   - has `agent-handoff` label → "AGENT-HANDOFF" — reserved for another
+//     agent (a multi-agent feature, kept but de-emphasized). Ranks above
+//     HUMAN-BLOCK/AGENT because it's an explicit, deliberate flag.
+//   - an agent task blocked by an open human task → "WAITING-ON-HUMAN"
+//     (Issue.BlockedByHuman; called HUMAN-BLOCK before the rename)
+//   - claimed by me (the person at the TUI took it with `x`) → "HUMAN":
+//     it is their move because they made it theirs
+//   - anything else → AGENT, whether waiting or in progress. A null
+//     owner (no `src:`/`human` label at all) DEFAULTS to AGENT.
+//
+// me is the person running the TUI (Model.me); empty means no row can
+// be "claimed by me".
+func responsibilityBadgeFor(i beads.Issue, me string) string {
 	if i.IsHuman() {
 		return humanBadge.Render("HUMAN")
 	}
-	// AGENT-HANDOFF is an explicit "leave this to another agent" flag, so it
-	// outranks both the computed HUMAN-BLOCK and the plain AGENT default — a
-	// human is expected to orchestrate the cross-agent coordination.
 	if i.IsAgentHandoff() {
-		return agentHandoffBadge.Render("AGENT-HANDOFF")
+		return agentHandoffBadge.Render("OTHER-AGENT")
 	}
-	// Everything not flagged for a human is agent-owned — including an issue
-	// with NO owner label at all. A null owner DEFAULTS to AGENT rather than
-	// rendering a blank column, so the owner badge is never empty.
-	// HUMAN-BLOCK takes precedence over plain AGENT so a row the agent cannot
-	// unblock reads visually different from rows the inbox imperative says to
-	// act on (set by markBlockedByHuman post-Fetch when a dep carries the
-	// human label).
+	// HUMAN-BLOCK takes precedence over plain AGENT so a row the agent
+	// cannot unblock reads visually different from rows the inbox
+	// imperative says to act on (set by markBlockedByHuman post-Fetch
+	// when a dep carries the human label).
 	if i.BlockedByHuman {
-		return humanBlockBadge.Render("HUMAN-BLOCK")
+		return humanBlockBadge.Render("WAITING-ON-HUMAN")
 	}
-	// Lease (wyk-contract/v4): who has it checked out, or that their
-	// checkout lapsed. Below HUMAN-BLOCK because "can't move" outranks
-	// "who's on it"; above plain AGENT because a named holder is strictly
-	// more information than the default.
-	switch l := lease.Of(i, leaseNow(), lease.TTL); l.State {
-	case lease.Live:
-		return claimedBadge.Render(leaseBadgeText(l.Owner))
-	case lease.Expired:
-		return expiredBadge.Render("EXPIRED")
+	if claimedByMe(i, me) {
+		return humanBadge.Render("HUMAN")
 	}
 	return agentBadge.Render("AGENT")
 }
 
-// leaseNow is the clock the owner badge reads leases against. A seam so
-// badge tests are deterministic.
-var leaseNow = time.Now
-
-// leaseBadgeText is "@<owner>" fitted to the owner column: colResp minus
-// the badge's one-cell padding each side. An unrecorded holder (a bare
-// in_progress with no assignee) renders as "@?" rather than vanishing.
-func leaseBadgeText(owner string) string {
-	if owner == "" {
-		owner = "?"
+// claimedByMe reports whether the person at the TUI has this issue
+// claimed: in progress, with a wyk lease stamp naming them (`x` here,
+// or `wyk claim`). A bare bd claim does NOT count, even under the same
+// name: `me` falls back to git user.name, which is also what bd records
+// when an agent runs a raw `bd update --claim`, so the name alone
+// cannot tell the person's work from an agent's (roborev #7268).
+// Whether the claim has outlived its TTL is deliberately ignored —
+// expiry is not a thing the screen shows.
+func claimedByMe(i beads.Issue, me string) bool {
+	if me == "" {
+		return false
 	}
-	return trunc("@"+sanitizeInline(owner), colResp-2)
+	l := lease.Of(i, leaseNow(), lease.TTL)
+	return l.State != lease.None && !l.Implicit && l.Owner == me
 }
+
+// isHumanRow is the `human` preset's rule: the Turn badge is HUMAN —
+// the `human` label, or a task the person claimed for themselves.
+func isHumanRow(i beads.Issue, me string) bool {
+	if i.IsHuman() {
+		return true
+	}
+	return !i.IsAgentHandoff() && !i.BlockedByHuman && claimedByMe(i, me)
+}
+
+// isMineRow is the `mine` preset's rule: the Turn badge is HUMAN. It
+// goes by badge, not by assignee — an agent's row is never "mine",
+// whatever name bd recorded on it — and that includes WAITING-ON-HUMAN
+// rows: those are agent tasks, waiting on a human task that is itself
+// in mine. Today this is the same set as the human view; the two stay
+// separate presets so either can diverge without a rename. Closed rows
+// are the caller's concern.
+func isMineRow(i beads.Issue, me string) bool {
+	return isHumanRow(i, me)
+}
+
+// leaseNow is the clock claims are read against. A seam so badge tests
+// are deterministic.
+var leaseNow = time.Now
 
 // abbrevType returns a fixed-width type slug. Most bd types fit in
 // 4 chars natively (task, bug, epic); the longer ones are truncated
@@ -1231,16 +1257,6 @@ func abbrevType(t string) string {
 	return t[:colType]
 }
 
-// abbrevStatus normalises bd's status names for the table column.
-// "in_progress" gets the conventional "wip" because the full string
-// would dominate the row width and 'wip' is unambiguous in context.
-func abbrevStatus(s string) string {
-	if s == "in_progress" {
-		return "wip"
-	}
-	return s
-}
-
 // statusCell is the text the Status column shows for a row: its bd
 // status, or "closing" while a close is in flight against it. Both
 // computeColWidths and renderRow go through this one function — a
@@ -1250,7 +1266,7 @@ func (m Model) statusCell(i beads.Issue) string {
 	if m.isClosing(i) {
 		return closingLabel
 	}
-	return abbrevStatus(i.Status)
+	return i.Status
 }
 
 // statusCellStyle pairs with statusCell. An in-flight close borrows
@@ -1287,7 +1303,7 @@ func relTime(t time.Time) string {
 }
 
 func (m Model) statusBar() string {
-	left := fmt.Sprintf("[%s]  %d/%d", m.preset, len(m.visible), len(m.all))
+	left := fmt.Sprintf("[%s]  %d/%d", viewName(m.preset), len(m.visible), len(m.all))
 	if stats := m.renderStatsLine(); stats != "" {
 		left += "  " + stats
 	}
@@ -1357,11 +1373,26 @@ func (m Model) statusBar() string {
 	return out
 }
 
+// filterPromptHelp is the footer while the filter prompt is open.
+var filterPromptHelp = []key.Binding{
+	key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "move")),
+	key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "page")),
+	key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next view")),
+	key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "done (keeps filter)")),
+	key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "done")),
+	key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^c", "quit")),
+}
+
 // footerBindings is the short-help set the status-bar footer renders: the
 // write-aware list, minus the write keys when there's no Mutator wired up.
 // Shared by statusBar (render) and chromeExtra (height budget) so the two
 // can't drift on the read-only swap rule.
 func (m Model) footerBindings() []key.Binding {
+	if m.mode == modeFilter {
+		// The list keys are text while the prompt is open; advertise
+		// what actually works (updateFilter, mouseInFilter).
+		return filterPromptHelp
+	}
 	if m.splitView() && m.paneFocused() {
 		return m.keys.paneHelp(m.mutator() != nil)
 	}
@@ -1470,19 +1501,14 @@ func (m Model) renderStatsLine() string {
 	mine := 0
 	review := 0
 	for _, i := range m.all {
-		for _, l := range i.Labels {
-			if l == "human" {
-				human++
-				break
-			}
+		if isHumanRow(i, m.me) && i.Status != "closed" {
+			human++
 		}
 		if i.HasLabel(filter.ReviewLabel) {
 			review++
 		}
-		// Assignee, not Owner: the mine preset queries assignee=,
-		// so the count must tally the same field or the status-bar
-		// number and the view it advertises disagree.
-		if m.me != "" && i.Assignee == m.me {
+		// By Turn badge, the same rule the mine preset applies.
+		if isMineRow(i, m.me) && i.Status != "closed" {
 			mine++
 		}
 	}
@@ -1752,12 +1778,12 @@ func (m Model) rowsStartY() int {
 func renderFilterChips(p filter.Preset, priorityCap int, sortBy sortKey, showClosed bool) string {
 	var parts []string
 	if p != filter.PresetAll {
-		parts = append(parts, chipActiveStyle.Render(" "+string(p)+" "))
+		parts = append(parts, chipActiveStyle.Render(" "+viewName(p)+" "))
 	}
 	if priorityCap >= 0 {
 		label := fmt.Sprintf(" ≤P%d ", priorityCap)
 		if priorityCap == 0 {
-			label = " P0 only "
+			label = " most urgent only "
 		}
 		parts = append(parts, chipActiveStyle.Render(label))
 	}
@@ -1773,6 +1799,21 @@ func renderFilterChips(p filter.Preset, priorityCap int, sortBy sortKey, showClo
 	return strings.Join(parts, " ")
 }
 
+// viewName is what a preset is called on screen. The identifiers stay
+// bd-shaped (`ready` is bd's word, `review` the label's), because the
+// -preset flag, state.json and the :view command all take them; the
+// screen says what the view holds. "ready" read as "ready for me" and
+// "review" as "for me to review" — neither is what they are.
+func viewName(p filter.Preset) string {
+	switch p {
+	case filter.PresetReady:
+		return "can start"
+	case filter.PresetReview:
+		return "code review"
+	}
+	return string(p)
+}
+
 // emptyMatchCopy returns the preset-aware "no rows match this
 // filter" copy followed by a recovery hint on a second line so a
 // user who hits an empty view doesn't have to guess the next
@@ -1782,21 +1823,21 @@ func renderFilterChips(p filter.Preset, priorityCap int, sortBy sortKey, showClo
 // step (cycle presets, include closed, clear the filter).
 func emptyMatchCopy(p filter.Preset, query string) string {
 	if query != "" {
-		return fmt.Sprintf("no matches for %q\n  → / esc to clear the fuzzy filter, or Tab to cycle presets", query)
+		return fmt.Sprintf("no matches for %q\n  → esc to clear the fuzzy filter, or Tab for the next view", query)
 	}
 	switch p {
 	case filter.PresetHuman:
-		return "✓ no human-flagged issues — nothing waiting on you right now\n  → Tab cycles presets; r refreshes if you expected a hand-off"
+		return "✓ nothing waiting on you right now\n  → Tab for the next view; r refreshes if you expected something handed to you"
 	case filter.PresetReady:
-		return "no ready work — everything left is blocked or in progress\n  → Tab to cycle to `human` or `blocked`; press `[` to jump human-flagged rows"
+		return "no ready work — everything left is blocked or in progress\n  → Tab to the `human` or `blocked` view; press `[` to jump between rows waiting on you"
 	case filter.PresetMine:
-		return "nothing assigned to you in this workspace\n  → Tab cycles presets; check `-me` if you expected rows"
+		return "nothing is your move right now — no HUMAN rows\n  → Tab for the next view"
 	case filter.PresetBlocked:
-		return "no blocked issues — work is flowing\n  → Tab cycles presets"
+		return "no blocked issues — work is flowing\n  → Tab for the next view"
 	case filter.PresetReview:
-		return "no open review findings — roborev hasn't filed anything (or it's all handled)\n  → Tab cycles presets; this view tracks issues roborev's beads hook files"
+		return "no open review findings — roborev hasn't filed anything (or it's all handled)\n  → Tab for the next view; this view tracks issues roborev's beads hook files"
 	default:
-		return "no issues match this view\n  → C includes closed rows; / opens a fuzzy filter; Tab cycles presets"
+		return "no issues match this view\n  → h shows closed rows; f opens a filter; Tab for the next view"
 	}
 }
 

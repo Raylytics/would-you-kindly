@@ -44,10 +44,8 @@ a claim is a lease that tells every other agent "mine, hands off".
    Stopping without finishing? `wyk claim -release <id>` gives it back.
 
 **Leases, in short.** `wyk claim <id>` exits **3** and names the holder
-when another agent holds a live lease: pick something else. A row badged
-`@<owner>` in the TUI is checked out by that agent: don't touch it.
-`EXPIRED` means the holder stopped renewing; claiming it takes it over
-and leaves a note. Use `-force` only when you know the holder is gone.
+when another agent holds a live lease: pick something else. An expired
+lease is claimable; claiming it takes it over and leaves a note. Use `-force` only when you know the holder is gone.
 Your identity defaults to `claude-<session id>`, unique per session, so
 concurrent agents never collide. Set `WYK_AGENT_IDENTITY` only if you
 have a defined role (`reviewer`, `release-bot`) and want a stable name.
@@ -57,18 +55,17 @@ with `wyk claim -force <id>`.
 
 ## File new work
 
-The TUI's owner column is driven by **labels** (not bd's `owner`/`assignee`
-fields; `-a`/`--claim` don't set the HUMAN/AGENT badge, though a live
-`wyk claim` lease shows as `@<owner>` in its place). A
+The TUI's Turn column is driven by **labels** (not bd's `owner`/`assignee`
+fields; `-a`/`--claim` don't set the HUMAN/AGENT badge). A
 task with no owner label **defaults to AGENT** — the column is never blank.
 
 So the one thing that matters: **if a task needs a human, hand it off** —
 otherwise it silently defaults to AGENT and the human never sees it.
 
 The badge has four states: **HUMAN** (a human must act), **AGENT** (yours),
-**HUMAN-BLOCK** (yours but blocked by a human-flagged dep), and
-**AGENT-HANDOFF** (`agent-handoff` label — *another* agent is working it).
-If you see **AGENT-HANDOFF**, do NOT touch that task: a human orchestrates
+**WAITING-ON-HUMAN** (yours but blocked by a human-flagged dep), and
+**OTHER-AGENT** (`agent-handoff` label — *another* agent is working it).
+If you see **OTHER-AGENT**, do NOT touch that task: a human orchestrates
 the cross-agent coordination, and it's excluded from your inbox for exactly
 this reason. Flag a task that way with `bd label add <id> agent-handoff
 --dolt-auto-commit=on` when you need to fence off work another agent owns.

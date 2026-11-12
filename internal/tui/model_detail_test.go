@@ -253,8 +253,8 @@ func TestDetailView_RendersNotesWhenPresent(t *testing.T) {
 		Notes:       "first note\nsecond note",
 	}
 	out := m.View()
-	if !strings.Contains(out, "notes") {
-		t.Errorf("detail view should render the 'notes' label when Notes is set; got:\n%s", out)
+	if !strings.Contains(out, "comments") {
+		t.Errorf("detail view should render the 'comments' label when Notes is set; got:\n%s", out)
 	}
 	if !strings.Contains(out, "second note") {
 		t.Errorf("detail view should include the notes content; got:\n%s", out)
@@ -300,11 +300,11 @@ func TestDetailView_YankCopiesDescriptionAndNotes(t *testing.T) {
 	clipboardCopy = func(s string) error { copied = s; return nil }
 	t.Cleanup(func() { clipboardCopy = orig })
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	m = model.(Model)
 	want := "step one\nstep two\n\nfirst note"
 	if copied != want {
-		t.Errorf("c in detail mode copied %q, want %q", copied, want)
+		t.Errorf("y in detail mode copied %q, want %q", copied, want)
 	}
 	if !strings.Contains(m.status, "copied a-1 instructions") {
 		t.Errorf("status should announce the copy; got %q", m.status)
@@ -492,8 +492,8 @@ func TestDetailMsg_PreservesBlockedByHumanBadge(t *testing.T) {
 		t.Error("the enriched body should still be adopted")
 	}
 	// And the badge itself must render HUMAN-BLOCK, not AGENT.
-	if got := responsibilityBadgeFor(m.detailIssue); !strings.Contains(got, "HUMAN-BLOCK") {
-		t.Errorf("badge should be HUMAN-BLOCK; got %q", got)
+	if got := responsibilityBadgeFor(m.detailIssue, m.me); !strings.Contains(got, "WAITING-ON-HUMAN") {
+		t.Errorf("badge should be WAITING-ON-HUMAN; got %q", got)
 	}
 }
 
@@ -631,7 +631,7 @@ func TestDetailBack_ReEnrichesPoppedParent(t *testing.T) {
 func TestDetailBody_RendersAcceptanceCriteriaAndDesign(t *testing.T) {
 	i := beads.Issue{Description: "do it", AcceptanceCriteria: "it is done when X", Design: "built with Y", Notes: "a note"}
 	out, _ := detailBody(i, 80, nil, nil, false, false, -1)
-	for _, want := range []string{"acceptance criteria", "it is done when X", "design", "built with Y", "notes", "a note"} {
+	for _, want := range []string{"acceptance criteria", "it is done when X", "design", "built with Y", "comments", "a note"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detail body missing %q:\n%s", want, out)
 		}
@@ -746,8 +746,8 @@ func TestDetailView_HeightStaysWithinTerminal(t *testing.T) {
 					t.Errorf("detail view missing %q:\n%s", want, out)
 				}
 			}
-			if issue.Status == "in_progress" && !strings.Contains(out, "lease: ") {
-				t.Errorf("claimed issue should show its lease line:\n%s", out)
+			if issue.Status == "in_progress" && !strings.Contains(out, "claimed by: ") {
+				t.Errorf("claimed issue should show who claimed it:\n%s", out)
 			}
 		})
 	}

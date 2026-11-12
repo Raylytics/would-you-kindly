@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jimbottle/would-you-kindly/internal/beads"
+	"github.com/jimbottle/would-you-kindly/internal/filter"
 )
 
 // This file holds modeFilter: the fuzzy/substring query and what it matches.
@@ -169,7 +170,7 @@ func TestFilterChip_RendersWhenActiveOnlyOnNonDefaultPresetOrCap(t *testing.T) {
 	}
 
 	// After preset switch + cap — both chips appear.
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model, _ = m.switchPreset(filter.PresetHuman)
 	m = model.(Model)
 	chips := renderFilterChips(m.preset, m.priorityCap, m.sortBy, m.showClosed)
 	if !strings.Contains(chips, "human") || !strings.Contains(chips, "P1") {

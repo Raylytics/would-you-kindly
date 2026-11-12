@@ -164,7 +164,7 @@ func runInit(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "print what would happen without writing the hook")
 	skipBD := fs.Bool("skip-bd-init", false, "do not run 'bd init' even if .beads is missing")
 	skipRegister := fs.Bool("skip-register", false, "do not add this repo to ~/.config/wyk/repos.json")
-	skipClaudeMD := fs.Bool("skip-claude-md", false, "do not seed the agent enrichment: wyk's conventions block in CLAUDE.md AND the bd-create-guard PreToolUse hook in .claude/settings.json (which redirects 'bd create' to 'wyk create')")
+	skipClaudeMD := fs.Bool("skip-claude-md", false, "do not seed the agent enrichment: wyk's conventions block in CLAUDE.md AND the bd-create-guard PreToolUse hook in .claude/settings.json (which redirects 'bd create' to 'wyk create' and 'bd update --claim' to 'wyk claim')")
 	skipHook := fs.Bool("skip-hook", false, "do not touch git hooks at all — register and enrich only. Use when another tool owns post-commit and you don't want wyk's auto-close (commits with 'Closes: <id>' then won't close anything)")
 	scanRoot := fs.String("scan", "", "scan this directory tree for existing bd workspaces and register every one found (skips repos already registered, hidden dirs, node_modules, vendor); mutually exclusive with the per-repo init path")
 	uninstall := fs.Bool("uninstall", false, "remove wyk's post-commit hook (restoring post-commit.pre-wyk if present); refuses on foreign hooks")
@@ -929,7 +929,7 @@ const rememberedConventionKey = "wyk-handoff-convention"
 // rememberedConventionMemory is the memory text wyk init stores
 // via bd remember. Kept as a const so a test can assert the labels
 // are present.
-const rememberedConventionMemory = "wyk convention: a human task carries label=human + label=src:agent; agent-owned just label=src:agent. Inbox = `" + agentInboxQuery + "` (run `wyk inbox`) — WORK returned items, don't just note them. Skip HUMAN-BLOCK rows (agent task with a human-flagged dep) and AGENT-HANDOFF rows (label=agent-handoff = another agent's; a human coordinates). File/hand off a human task with `wyk handoff <id>` (or `wyk handoff -create \"<title>\"`), never hand-rolled labels; the runbook must be a TASK (`## Steps` = directions the human follows) or a QUESTION (`## Question` = what the human answers/decides) — neither heading and wyk handoff refuses it. Multi-agent: route with `wyk handoff --identity <name>` (adds src:agent:<name>), read with `wyk inbox --identity <name>` or $WYK_AGENT_IDENTITY. Statuses: open(default)/in_progress/hooked(another agent's hook)/blocked(+--add-dependency)/deferred(subsystem not ready, hidden from bd ready)/pinned(persistent, never a queue entry)/closed; prefer deferred over holding a task open. Full text + runbook format: `wyk conventions`."
+const rememberedConventionMemory = "wyk convention: a human task carries label=human + label=src:agent; agent-owned just label=src:agent. Inbox = `" + agentInboxQuery + "` (run `wyk inbox`) — WORK returned items, don't just note them. Skip WAITING-ON-HUMAN rows (agent task with a human-flagged dep) and OTHER-AGENT rows (label=agent-handoff = another agent's; a human coordinates). File/hand off a human task with `wyk handoff <id>` (or `wyk handoff -create \"<title>\"`), never hand-rolled labels; the runbook must be a TASK (`## Steps` = directions the human follows) or a QUESTION (`## Question` = what the human answers/decides) — neither heading and wyk handoff refuses it. Multi-agent: route with `wyk handoff --identity <name>` (adds src:agent:<name>), read with `wyk inbox --identity <name>` or $WYK_AGENT_IDENTITY. Statuses: open(default)/in_progress/hooked(another agent's hook)/blocked(+--add-dependency)/deferred(subsystem not ready, hidden from bd ready)/pinned(persistent, never a queue entry)/closed; prefer deferred over holding a task open. Full text + runbook format: `wyk conventions`."
 
 // teachBDConvention writes a single bd memory describing the wyk
 // label convention into repoRoot's bd workspace. The --key makes
@@ -980,12 +980,11 @@ Session column traces work back to a conversation. A PreToolUse hook
 blocks raw ` + "`bd create`" + ` and tells you to switch; that's expected — just
 re-run as ` + "`wyk create`" + `.
 
-**Owner column** — whose move it is, label-driven (NOT bd's owner/assignee):
+**Turn column** — whose move it is, label-driven (NOT bd's owner/assignee):
 - ` + "`human`" + ` → **HUMAN** (a human must act).
-- ` + "`agent-handoff`" + ` → **AGENT-HANDOFF**: another agent owns it; don't touch,
+- ` + "`agent-handoff`" + ` → **OTHER-AGENT**: another agent owns it; don't touch,
   a human coordinates. Excluded from ` + "`wyk inbox`" + `.
-- agent task blocked by a ` + "`human`" + `-flagged dep → **HUMAN-BLOCK** (skip it).
-- checked out by an agent → **@<owner>** (a live lease); lapsed → **EXPIRED**.
+- agent task blocked by a ` + "`human`" + `-flagged dep → **WAITING-ON-HUMAN** (skip it).
 - else → **AGENT** (the default; a null owner is never blank — so a task
   that needs a human MUST be handed off, or the human never sees it).
 
@@ -997,11 +996,11 @@ directions they follow) or a **question** (the human ANSWERS/DECIDES →
 ` + "`## Question`" + `, with options + your recommendation). ` + "`wyk handoff`" + ` refuses a
 runbook with neither. ` + "`wyk handoff -template [-question]`" + ` prints the skeleton.
 
-**Pick up work**: ` + "`wyk next -claim`" + ` — your held work, then the inbox (items
+**Pick up work**: ` + "`wyk next -claim`" + ` — your held work, then the agent inbox (items
 bounced back to you — WORK them), then ready work — and checks the top pick
 out as an expiring lease so other agents in this repo leave it alone. Work on
-your own branch. A ` + "`@<owner>`" + ` row is another agent's: don't touch it;
-` + "`EXPIRED`" + ` is claimable. ` + "`wyk conventions`" + ` prints the full contract.
+your own branch. If ` + "`wyk claim`" + ` exits 3 another agent holds it: don't touch
+it; a lapsed lease is claimable. ` + "`wyk conventions`" + ` prints the full contract.
 
 **Something wrong? Act — don't shrug.** If a wyk/bd command errors, a
 convention looks broken, or the workflow rubs wrong, file a bd issue (with

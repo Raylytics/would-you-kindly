@@ -29,7 +29,7 @@ func TestSeedWykConventions_CreatesWhenAbsent(t *testing.T) {
 		wykConventionsBeginMarker,
 		wykConventionsEndMarker,
 		"`wyk create`",
-		"HUMAN-BLOCK",
+		"WAITING-ON-HUMAN",
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("new CLAUDE.md missing %q:\n%s", want, body)

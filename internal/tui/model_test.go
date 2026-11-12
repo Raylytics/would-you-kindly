@@ -289,8 +289,9 @@ func TestSessionColumn_RendersShortSessionFromLabel(t *testing.T) {
 		t.Errorf("sessionShort on an unstamped issue = %q, want empty", got)
 	}
 
+	// Session is hidden by default; this is the view with it switched on.
 	src := &stubSource{issues: []beads.Issue{stamped, bare}}
-	m := New(src)
+	m := New(src).WithHiddenColumns(map[string]bool{}, "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
 	m = model.(Model)
 	m = applyFetched(m, src)
@@ -310,13 +311,13 @@ func TestEmptyState_HumanPresetCelebrates(t *testing.T) {
 		{ID: "a-1", Title: "no human label here", Labels: []string{"src:agent"}},
 	}}
 	m := applyFetched(New(src), src)
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model, _ := m.switchPreset(filter.PresetHuman)
 	m = model.(Model)
 	// Pretend the human-preset fetch came back empty.
 	model, _ = m.Update(fetchedMsg{preset: m.preset, issues: []beads.Issue{}})
 	m = model.(Model)
 	out := m.View()
-	if !strings.Contains(out, "no human-flagged issues") {
+	if !strings.Contains(out, "nothing waiting on you") {
 		t.Errorf("human-preset empty state should be celebratory; got:\n%s", out)
 	}
 }
@@ -400,11 +401,11 @@ func TestEmptyMatchCopy_PresetSpecificHints(t *testing.T) {
 		wantContent string
 		wantHint    string
 	}{
-		{"human celebrates", filter.PresetHuman, "", "no human-flagged issues", "Tab cycles"},
-		{"ready explains state", filter.PresetReady, "", "no ready work", "Tab to cycle"},
-		{"mine nudges at -me", filter.PresetMine, "", "nothing assigned to you", "-me"},
-		{"blocked is positive", filter.PresetBlocked, "", "no blocked issues", "Tab cycles"},
-		{"default mentions closed", filter.PresetAll, "", "no issues match", "C includes closed"},
+		{"human celebrates", filter.PresetHuman, "", "nothing waiting on you", "Tab for the next view"},
+		{"ready explains state", filter.PresetReady, "", "no ready work", "Tab to the `human`"},
+		{"mine says nothing is your move", filter.PresetMine, "", "nothing is your move", "Tab for the next view"},
+		{"blocked is positive", filter.PresetBlocked, "", "no blocked issues", "Tab for the next view"},
+		{"default mentions closed", filter.PresetAll, "", "no issues match", "h shows closed"},
 		{"query miss explains escape", filter.PresetAll, "rotate", `no matches for "rotate"`, "clear the fuzzy filter"},
 	}
 	for _, tc := range cases {

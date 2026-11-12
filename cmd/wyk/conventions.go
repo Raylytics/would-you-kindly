@@ -45,7 +45,7 @@ DO exist on 'bd update' — for existing issues only.)
   - Tasks for a HUMAN    → --labels="human,src:agent"
                            (these surface in the TUI's 'h' view and in 'wyk --probe')
   - Tasks the AGENT owns → --labels="src:agent" only
-  - Another AGENT's work → --labels="agent-handoff,src:agent" (badge AGENT-HANDOFF):
+  - Another AGENT's work → --labels="agent-handoff,src:agent" (badge OTHER-AGENT):
                            a different agent is working it; do NOT interfere,
                            a human orchestrates. Excluded from the inbox below.
 
@@ -93,8 +93,10 @@ renewed — the Stop hook renews on every turn. It is stored on the issue
 as bd metadata wyk.lease.owner / .until / .branch alongside bd's own
 assignee + in_progress. Expiry is computed on read; nothing sweeps.
 
-  - A row badged @<owner> is checked out by that agent: do NOT touch it.
-  - EXPIRED means its holder stopped renewing: claimable (wyk next offers
+  - 'wyk claim <id>' exits 3 and names the holder when another agent
+    holds a live lease: do NOT touch that issue. (The TUI shows no
+    holder and no expiry; ask the CLI.)
+  - A lease whose holder stopped renewing is claimable (wyk next offers
     it; claiming leaves a note naming the previous holder).
   - Set WYK_AGENT_IDENTITY only for an agent with a role ('reviewer');
     plain agent sessions are told apart by their session ID already.
@@ -124,7 +126,7 @@ Exceptions:
   - The 'What unblocks me when this returns' artifact is actually
     missing (re-flag 'human' with a note explaining what's still
     needed; don't sit silently).
-  - The row renders as HUMAN-BLOCK in the TUI — an agent task
+  - The row renders as WAITING-ON-HUMAN in the TUI — an agent task
     whose dependency set includes a human-labeled task. The
     blocker isn't closed yet, so the agent literally can't move
     this row forward. Skip to the next inbox item.
@@ -450,7 +452,7 @@ func conventionsStructured() conventionsJSON {
 	c.Labels.Human = "task is for a human to act on; surfaced in TUI 'h' view and 'wyk --probe'"
 	c.Labels.SrcAgent = "filed by an agent (provenance); persists across the back-and-forth"
 	c.Labels.SrcHuman = "filed by a human (provenance); applied by the TUI's N quick-add and wyk handoff -create when stdin is absent"
-	c.Labels.AgentHandoff = "another agent is working this task; THIS agent must not interfere (badge AGENT-HANDOFF). A human orchestrates the coordination; excluded from the agent inbox query"
+	c.Labels.AgentHandoff = "another agent is working this task; THIS agent must not interfere (badge OTHER-AGENT). A human orchestrates the coordination; excluded from the agent inbox query"
 	c.Queries.HumanTasks = humanTasksQuery
 	c.Queries.AgentInbox = agentInboxQuery
 	c.Queries.AgentInboxIdentity = inboxQueryFor("<name>")
@@ -463,7 +465,7 @@ func conventionsStructured() conventionsJSON {
 		TTLEnvVar:    claimTTLEnvVar,
 		TTLConfigKey: "claim_ttl",
 		PickCommand:  "wyk next -claim -json",
-		Rule:         "Claim before starting (`wyk next -claim` or `wyk claim <id>`), on your own git branch. Never work an issue holding another identity's LIVE lease (exit 3 / badge @owner). An EXPIRED lease is claimable. Leases lapse after the TTL unless renewed (`wyk claim -renew`; the Stop hook renews each turn).",
+		Rule:         "Claim before starting (`wyk next -claim` or `wyk claim <id>`), on your own git branch. Never work an issue holding another identity's LIVE lease (`wyk claim` exits 3 and names the holder). A lapsed lease is claimable. Leases lapse after the TTL unless renewed (`wyk claim -renew`; the Stop hook renews each turn).",
 	}
 	c.InboxRule = "If `wyk inbox` returns items, work them now rather than acknowledging and moving on. The inbox holds tasks where the human is no longer blocking; treating them as 'handle later' defeats the round-trip. Exception: the user is mid-conversation about something explicitly urgent, or the expected unblocker artifact is missing (re-flag `human` and note, don't sit)."
 	c.Statuses = []statusGuidance{

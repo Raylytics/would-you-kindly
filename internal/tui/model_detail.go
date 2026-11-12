@@ -32,9 +32,10 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.quitNow()
 	case keyHit(msg, m.keys.Help):
 		return m.openHelp()
-	case msg.String() == "c", keyHit(msg, m.keys.Yank):
-		// `c` copies the issue's instructions (description + notes) to
-		// the clipboard; `y` stays a silent alias for muscle memory.
+	case keyHit(msg, m.keys.Yank):
+		// `y` copies the issue's instructions (description + notes) to
+		// the clipboard — roborev's copy key. `c` used to do this; it
+		// is the comment/note key now, as it is there.
 		return m.handleYankDetailBody()
 	case keyHit(msg, m.keys.Close):
 		// `a` closes an open issue (confirm prompt) or reopens a
@@ -44,14 +45,19 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// `d` defers the issue. This shadows the viewport's
 		// half-page-down; j/k, pgdn, space and g/G still scroll.
 		return m.beginDeferDetail()
+	case keyHit(msg, m.keys.Layout):
+		// `L` works from the focused pane too, as in roborev; the
+		// pane footer advertises it. Hiding the pane leaves the same
+		// issue open full-screen.
+		return m.toggleLayout()
 	case keyHit(msg, m.keys.Mouse):
 		// The toggle matters MOST here: releasing capture to
 		// click-drag-copy a long runbook shouldn't require backing
 		// out to the list first.
 		return m.toggleMouse()
 	case keyHit(msg, m.keys.AddNote):
-		// `n` appends a note. This reclaims the old `n`/`p` link-cycle
-		// aliases — Tab/Shift-Tab remain the link-selection axis.
+		// `c` (alias `n`) appends a note. Tab/Shift-Tab are the
+		// link-selection axis.
 		return m.beginNoteDetail()
 	case msg.Type == tea.KeyTab:
 		// Cycle the dependency/dependent link selection forward. j/k
@@ -284,7 +290,7 @@ func (m Model) handleYankDetailBody() (tea.Model, tea.Cmd) {
 	}
 	payload := b.String()
 	if payload == "" {
-		m.setStatus("nothing to copy (description and notes are empty)")
+		m.setStatus("nothing to copy (instructions and comments are empty)")
 		return m, flashClearCmd(m.statusGen)
 	}
 	if err := clipboardCopy(payload); err != nil {
@@ -547,7 +553,7 @@ func detailBody(i beads.Issue, width int, deps, dependents []beads.Issue, depsEr
 	b.WriteString(detailLabelStyle.Render("instructions"))
 	b.WriteString("\n")
 	if strings.TrimSpace(i.Description) == "" {
-		b.WriteString(emptyStyle.Render("(no description)"))
+		b.WriteString(emptyStyle.Render("(no instructions)"))
 	} else {
 		b.WriteString(wrap(sanitizeBlock(i.Description)))
 	}
@@ -556,7 +562,7 @@ func detailBody(i beads.Issue, width int, deps, dependents []beads.Issue, depsEr
 	for _, sec := range []struct{ label, body string }{
 		{"acceptance criteria", i.AcceptanceCriteria},
 		{"design", i.Design},
-		{"notes", i.Notes},
+		{"comments", i.Notes},
 	} {
 		if strings.TrimSpace(sec.body) == "" {
 			continue
@@ -657,7 +663,7 @@ func (m Model) detailHeader(i beads.Issue) string {
 	// Responsibility badge on its own line above the title — for
 	// a `← HUMAN` runbook the badge IS the headline. Empty when
 	// the row has no responsibility signal.
-	if badge := responsibilityBadgeFor(i); badge != "" {
+	if badge := responsibilityBadgeFor(i, m.me); badge != "" {
 		b.WriteString(badge)
 		b.WriteString("\n\n")
 	}
@@ -680,8 +686,8 @@ func (m Model) detailHeader(i beads.Issue) string {
 		b.WriteString("\n\n")
 	}
 
-	if line := leaseDetailLine(i); line != "" {
-		b.WriteString(detailLabelStyle.Render("lease: "))
+	if line := claimDetailLine(i); line != "" {
+		b.WriteString(detailLabelStyle.Render("claimed by: "))
 		b.WriteString(line)
 		b.WriteString("\n\n")
 	}
@@ -741,7 +747,7 @@ func (m Model) viewDetail() string {
 	if i.Status == "closed" {
 		act = "a: reopen"
 	}
-	footer := act + " ▕ d: defer ▕ n: note ▕ c: copy ▕ j/k scroll ▕ esc: back ▕ q: quit"
+	footer := act + " ▕ d: defer ▕ c: comment ▕ y: copy ▕ j/k scroll ▕ esc: back ▕ q: quit"
 	// When the issue has dependency/dependent links, advertise the
 	// drill-in nav: Tab highlights a link, Enter opens it.
 	if len(m.detailLinks()) > 0 {
@@ -768,6 +774,14 @@ func detailFactLines(i beads.Issue) []detailFact {
 	var out []detailFact
 	if i.Parent != "" {
 		out = append(out, detailFact{"parent", sanitizeInline(i.Parent)})
+	}
+	// Who filed it, in words: the src: labels say it, but "src:agent"
+	// next to a HUMAN badge reads as a contradiction.
+	switch {
+	case i.HasLabel("src:human"):
+		out = append(out, detailFact{"filed by", "you"})
+	case i.HasLabel("src:agent"):
+		out = append(out, detailFact{"filed by", "an agent"})
 	}
 	var activity []string
 	if !i.StartedAt.IsZero() {
@@ -822,26 +836,22 @@ func (m Model) detailPromptOverlay() (string, int) {
 	return "", 0
 }
 
-// leaseDetailLine summarises the issue's lease for the detail view —
-// holder, time left (or since lapse), branch, and whether it was stamped
-// by wyk or inferred from a bare bd claim. Empty when nobody holds it.
-// Owner and branch are bd content, so they're sanitized.
-func leaseDetailLine(i beads.Issue) string {
-	now := leaseNow()
-	l := lease.Of(i, now, lease.TTL)
+// claimDetailLine says who has the issue claimed, for the detail view —
+// the holder and their branch. Empty when nobody does. No time limit is
+// shown: expiry is not part of what the screen reports. Holder and
+// branch are bd content, so they're sanitized.
+func claimDetailLine(i beads.Issue) string {
+	l := lease.Of(i, leaseNow(), lease.TTL)
 	if l.State == lease.None {
 		return ""
 	}
-	owner := l.Owner
-	if owner == "" {
-		owner = "an unrecorded holder"
+	holder := l.Owner
+	if holder == "" {
+		holder = "an unrecorded holder"
 	}
-	parts := []string{sanitizeInline(owner), lease.Remaining(l, now)}
+	parts := []string{sanitizeInline(holder)}
 	if l.Branch != "" {
 		parts = append(parts, "on "+sanitizeInline(l.Branch))
-	}
-	if l.Implicit {
-		parts = append(parts, "(inferred: claimed without wyk)")
 	}
 	return strings.Join(parts, " · ")
 }

@@ -7,46 +7,12 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/jimbottle/would-you-kindly/internal/beads"
 	"github.com/jimbottle/would-you-kindly/internal/filter"
 )
 
 // Rework of PR #18's behaviors onto the preset-tagged fetchedMsg
 // architecture (would-you-kindly-tjiy).
-
-func TestHumanKey_TogglesBackToOriginPreset(t *testing.T) {
-	src := &stubSource{issues: manyIssues(5)}
-	m := applyFetched(New(src), src)
-
-	// Start from blocked, jump into human, toggle back out.
-	model, _ := m.switchPreset(filter.PresetBlocked)
-	m = model.(Model)
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
-	m = model.(Model)
-	if m.preset != filter.PresetHuman {
-		t.Fatalf("h should enter the human view; got %v", m.preset)
-	}
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
-	m = model.(Model)
-	if m.preset != filter.PresetBlocked {
-		t.Errorf("second h should return to the origin preset (blocked); got %v", m.preset)
-	}
-}
-
-func TestHumanKey_ToggleFallsBackToAll(t *testing.T) {
-	// Launching directly into human (wyk -preset human) has no
-	// recorded origin: the toggle must land on all, not strand the
-	// user.
-	src := &stubSource{issues: manyIssues(3)}
-	m := applyFetched(New(src).WithPreset(filter.PresetHuman), src)
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
-	m = model.(Model)
-	if m.preset != filter.PresetAll {
-		t.Errorf("h from human with no origin should land on all; got %v", m.preset)
-	}
-}
 
 func TestSwitchPreset_PaintsCachedRowsInstantly(t *testing.T) {
 	src := &stubSource{issues: manyIssues(4)}
@@ -177,30 +143,32 @@ func TestWithCacheSnapshot_MinePresetAndClosedRows(t *testing.T) {
 		Preset:  string(filter.PresetAll),
 		SavedAt: time.Now(),
 		Issues: []beads.Issue{
-			{ID: "m-1", Assignee: "ev", Status: "open"},
-			{ID: "m-2", Assignee: "ev", Status: "closed"}, // closed: must not seed
-			{ID: "o-1", Assignee: "someone-else", Status: "open"},
+			{ID: "m-1", Assignee: "ev", Status: "in_progress", Metadata: stampedClaim("ev")},
+			{ID: "m-2", Status: "closed", Labels: []string{"human"}}, // closed: must not seed
+			{ID: "o-1", Assignee: "someone-else", Status: "in_progress"},
+			{ID: "o-2", Status: "open", Labels: []string{"human"}},
 			{ID: "h-c", Status: "closed", Labels: []string{"human"}}, // closed human
 		},
 	}
 	src := &stubSource{}
 
-	// Identity set: only the open row assigned to me.
+	// Identity set: my claim plus the open human row (mine goes by Turn
+	// badge), never someone else's claim or a closed row.
 	m := New(src).WithMe("ev").WithPreset(filter.PresetMine).WithCacheSnapshot(snap, "")
-	if len(m.all) != 1 || m.all[0].ID != "m-1" {
-		t.Errorf("mine with identity should seed open assignee=ev rows only; got %v", idsOf(m.all))
+	if got := idsOf(m.all); len(got) != 2 || got[0] != "m-1" || got[1] != "o-2" {
+		t.Errorf("mine with identity should seed my claim + the open human row; got %v", got)
 	}
 
-	// No identity: degrades to the non-closed set (the two open rows).
+	// No identity: no claim can be mine, so only the human row.
 	m = New(src).WithPreset(filter.PresetMine).WithCacheSnapshot(snap, "")
-	if len(m.all) != 2 {
-		t.Errorf("mine without identity should seed the non-closed rows; got %v", idsOf(m.all))
+	if got := idsOf(m.all); len(got) != 1 || got[0] != "o-2" {
+		t.Errorf("mine without identity should seed only human rows; got %v", got)
 	}
 
 	// And the human predicate excludes the closed human row.
 	m = New(src).WithPreset(filter.PresetHuman).WithCacheSnapshot(snap, "")
-	if len(m.all) != 0 {
-		t.Errorf("a closed human row must not seed the human view; got %v", idsOf(m.all))
+	if got := idsOf(m.all); len(got) != 1 || got[0] != "o-2" {
+		t.Errorf("only the open human row should seed the human view; got %v", got)
 	}
 }
 
@@ -474,7 +442,7 @@ func TestSwitchPreset_DerivesFromDiskSidecar(t *testing.T) {
 	// A live all fetch replaces the sidecar; derives now carry no age.
 	model, _ = m.switchPreset(filter.PresetAll)
 	m = model.(Model)
-	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: []beads.Issue{{ID: "m-1", Status: "open", Assignee: "me", Labels: []string{}}}})
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: []beads.Issue{{ID: "m-1", Status: "in_progress", Assignee: "me", Metadata: stampedClaim("me"), Labels: []string{}}}})
 	m = model.(Model)
 	m.me = "me"
 	model, _ = m.switchPreset(filter.PresetMine)
@@ -497,11 +465,12 @@ func TestWithCacheSnapshot_SubsetSnapshotDerivesFromSidecar(t *testing.T) {
 		Issues:  []beads.Issue{{ID: "h-1", Status: "open", Labels: []string{"human"}}},
 		All: &AllSnapshot{SavedAt: time.Now(), Issues: []beads.Issue{
 			{ID: "h-1", Status: "open", Labels: []string{"human"}},
-			{ID: "m-1", Status: "open", Assignee: "me", Labels: []string{}},
+			{ID: "m-1", Status: "in_progress", Assignee: "me", Metadata: stampedClaim("me"), Labels: []string{}},
+			{ID: "a-1", Status: "open", Assignee: "me", Labels: []string{"src:agent"}},
 		}},
 	}
 	m := New(&stubSource{}).WithMe("me").WithPreset(filter.PresetMine).WithCacheSnapshot(seed, "")
-	if got := idsOf(m.visible); len(got) != 1 || got[0] != "m-1" {
+	if got := idsOf(m.visible); len(got) != 2 || got[0] != "h-1" || got[1] != "m-1" {
 		t.Errorf("mine should be derived from the sidecar at warm-start; got %v", got)
 	}
 	if !m.cacheStale {

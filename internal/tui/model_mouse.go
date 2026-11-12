@@ -134,6 +134,37 @@ func (m *Model) pageList(pages int) {
 	m.setScroll(m.scroll + pages*m.bodyHeight())
 }
 
+// mouseInFilter is handleMouse while the filter prompt is open. The
+// prompt only takes the keyboard; the list it narrows is on screen, so
+// the wheel scrolls it and a click selects a row with the prompt still
+// up. A gesture that leaves the list — the click that opens the
+// selected row — cannot happen with the prompt up, so the prompt closes
+// first (the query stays applied), exactly as tab does from the keyboard.
+//
+// The row is then opened BY IDENTITY, not by replaying the click:
+// closing trims the query and expands an @alias, which can widen and
+// reorder the list, so the row position under the pointer may hold a
+// different issue afterwards. If the clicked issue is no longer listed,
+// the prompt just closes.
+func (m Model) mouseInFilter(msg tea.MouseMsg, listWidth int) (tea.Model, tea.Cmd) {
+	next, cmd := m.handleMouse(msg, listWidth, true)
+	nm, ok := next.(Model)
+	if !ok || nm.mode == modeFilter || nm.cursor < 0 || nm.cursor >= len(nm.visible) {
+		return next, cmd
+	}
+	clicked := issueKey(nm.visible[nm.cursor])
+	closed, closeCmd := m.closeFilterPrompt()
+	for i := range closed.visible {
+		if issueKey(closed.visible[i]) == clicked {
+			closed.cursor = i
+			closed.ensureCursorVisible()
+			opened, openCmd := closed.openCursorRow()
+			return opened, tea.Batch(closeCmd, openCmd)
+		}
+	}
+	return closed, closeCmd
+}
+
 // handleMouse interprets a tea.MouseMsg against the list view. The
 // list is laid out (top to bottom) as: chrome, the header line, the
 // row window, then the ↑/↓ overflow hints; the scrollbar runs down

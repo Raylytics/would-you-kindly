@@ -54,10 +54,10 @@ func TestLabel_AddsWhenAbsent(t *testing.T) {
 	}}}
 	m := applyMutatorFetched(New(s), s)
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	m = model.(Model)
 	if m.mode != modeLabel {
-		t.Fatalf("L should enter modeLabel; got %v", m.mode)
+		t.Fatalf("l should enter modeLabel; got %v", m.mode)
 	}
 	for _, r := range "blocked" {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -81,7 +81,7 @@ func TestLabel_RemovesWhenPresent(t *testing.T) {
 	}}}
 	m := applyMutatorFetched(New(s), s)
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	m = model.(Model)
 	for _, r := range "needs-review" {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -113,7 +113,7 @@ func TestLabel_BulkIsAddOnly(t *testing.T) {
 		model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{k}})
 		m = model.(Model)
 	}
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	m = model.(Model)
 	for _, r := range "needs-review" {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -140,10 +140,10 @@ func TestLabel_ReadOnlyShowsHint(t *testing.T) {
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	m = model.(Model)
 	if m.mode != modeList {
-		t.Errorf("L on read-only source should NOT enter modeLabel; got %v", m.mode)
+		t.Errorf("l on read-only source should NOT enter modeLabel; got %v", m.mode)
 	}
 	if !strings.Contains(m.status, "read-only") {
 		t.Errorf("status should explain read-only; got %q", m.status)

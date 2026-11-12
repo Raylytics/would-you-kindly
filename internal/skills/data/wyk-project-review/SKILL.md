@@ -19,7 +19,7 @@ bd list --status=open --json       # the full open backlog
 wyk depgraph                       # dependency structure (text tree)
 bd doctor --check=conventions      # lint / stale / orphans
 
-# Owner column: a task with no owner label DEFAULTS to AGENT (never
+# Turn column: a task with no owner label DEFAULTS to AGENT (never
 # blank). The real risk is a task that NEEDS a human but was never handed
 # off — it silently shows AGENT and the human never sees it. Scan the open
 # issues NOT flagged for a human and hand off any whose next step is a

@@ -110,7 +110,7 @@ func TestHumanBadge_AlwaysReadsHUMAN(t *testing.T) {
 		{Labels: []string{"human"}},
 	}
 	for _, i := range cases {
-		got := responsibilityBadgeFor(i)
+		got := responsibilityBadgeFor(i, "")
 		if !strings.Contains(got, "HUMAN") {
 			t.Errorf("badge should read HUMAN for %v; got %q", i.Labels, got)
 		}
@@ -296,7 +296,7 @@ func TestResponsibilityBadge_AgentTaskNotHumanFlagged(t *testing.T) {
 	// This is the inbox row case — the agent's responsibility is
 	// to act on these rather than note them.
 	agentInbox := beads.Issue{Labels: []string{"src:agent"}}
-	got := responsibilityBadgeFor(agentInbox)
+	got := responsibilityBadgeFor(agentInbox, "")
 	if got == "" {
 		t.Fatalf("src:agent + NOT human should produce a badge; got empty")
 	}
@@ -314,7 +314,7 @@ func TestResponsibilityBadge_HumanLabelTrumpsAgentSource(t *testing.T) {
 	// hand-back arrow variant), NOT AGENT, even though src:agent
 	// is also set.
 	bounced := beads.Issue{Labels: []string{"human", "src:agent"}}
-	got := responsibilityBadgeFor(bounced)
+	got := responsibilityBadgeFor(bounced, "")
 	if !strings.Contains(got, "HUMAN") {
 		t.Errorf("human label should produce a HUMAN badge regardless of source; got %q", got)
 	}
@@ -327,7 +327,7 @@ func TestResponsibilityBadge_HumanFiledIsAgentOwned(t *testing.T) {
 	// A human FILING a task (src:human, no `human` label) is agent-owned
 	// work — the agent does it — so it badges AGENT, not blank.
 	humanFiled := beads.Issue{Labels: []string{"src:human"}}
-	got := responsibilityBadgeFor(humanFiled)
+	got := responsibilityBadgeFor(humanFiled, "")
 	if !strings.Contains(got, "AGENT") {
 		t.Errorf("src:human without human label should badge AGENT; got %q", got)
 	}
@@ -340,7 +340,7 @@ func TestResponsibilityBadge_NullOwnerDefaultsToAgent(t *testing.T) {
 	// A null owner (no labels at all, or only unrelated labels) DEFAULTS to
 	// AGENT — the owner badge is never blank.
 	for _, labels := range [][]string{nil, {"priority:hi"}} {
-		got := responsibilityBadgeFor(beads.Issue{Labels: labels})
+		got := responsibilityBadgeFor(beads.Issue{Labels: labels}, "")
 		if !strings.Contains(got, "AGENT") {
 			t.Errorf("null owner %v should default to AGENT; got %q", labels, got)
 		}
@@ -359,9 +359,9 @@ func TestResponsibilityBadge_HumanBlockForBlockedAgentTask(t *testing.T) {
 		BlockedByHuman:  true,
 		DependencyCount: 1,
 	}
-	got := responsibilityBadgeFor(blocked)
-	if !strings.Contains(got, "HUMAN-BLOCK") {
-		t.Errorf("BlockedByHuman should produce HUMAN-BLOCK badge; got %q", got)
+	got := responsibilityBadgeFor(blocked, "")
+	if !strings.Contains(got, "WAITING-ON-HUMAN") {
+		t.Errorf("BlockedByHuman should produce the WAITING-ON-HUMAN badge; got %q", got)
 	}
 	// Must NOT also produce the plain AGENT label — those are
 	// mutually exclusive states for the column.
@@ -371,22 +371,23 @@ func TestResponsibilityBadge_HumanBlockForBlockedAgentTask(t *testing.T) {
 }
 
 func TestResponsibilityBadge_AgentHandoff(t *testing.T) {
-	// agent-handoff label → AGENT-HANDOFF badge: another agent owns it,
-	// a human orchestrates, this agent leaves it alone.
+	// agent-handoff label → OTHER-AGENT badge (the label keeps its
+	// name; the badge says what it means): another agent owns it, this
+	// agent leaves it alone.
 	handoff := beads.Issue{Labels: []string{"src:agent", "agent-handoff"}}
-	if got := responsibilityBadgeFor(handoff); !strings.Contains(got, "AGENT-HANDOFF") {
-		t.Errorf("agent-handoff label should produce AGENT-HANDOFF badge; got %q", got)
+	if got := responsibilityBadgeFor(handoff, ""); !strings.Contains(got, "OTHER-AGENT") {
+		t.Errorf("agent-handoff label should produce the OTHER-AGENT badge; got %q", got)
 	}
 
 	// The explicit flag outranks a computed HUMAN-BLOCK.
 	both := beads.Issue{Labels: []string{"src:agent", "agent-handoff"}, BlockedByHuman: true}
-	if got := responsibilityBadgeFor(both); !strings.Contains(got, "AGENT-HANDOFF") || strings.Contains(got, "HUMAN-BLOCK") {
+	if got := responsibilityBadgeFor(both, ""); !strings.Contains(got, "OTHER-AGENT") || strings.Contains(got, "WAITING-ON-HUMAN") {
 		t.Errorf("agent-handoff should outrank HUMAN-BLOCK; got %q", got)
 	}
 
 	// But the `human` label still trumps everything.
 	human := beads.Issue{Labels: []string{"src:agent", "agent-handoff", "human"}}
-	if got := responsibilityBadgeFor(human); !strings.Contains(got, "HUMAN") || strings.Contains(got, "AGENT-HANDOFF") {
+	if got := responsibilityBadgeFor(human, ""); !strings.Contains(got, "HUMAN") || strings.Contains(got, "AGENT-HANDOFF") {
 		t.Errorf("human label should trump agent-handoff; got %q", got)
 	}
 }
@@ -401,11 +402,11 @@ func TestResponsibilityBadge_HumanBlockOnlyWhenFlagSet(t *testing.T) {
 		DependencyCount: 1,
 		BlockedByHuman:  false,
 	}
-	got := responsibilityBadgeFor(deps)
+	got := responsibilityBadgeFor(deps, "")
 	if !strings.Contains(got, "AGENT") {
 		t.Errorf("agent task with deps but flag unset stays AGENT; got %q", got)
 	}
-	if strings.Contains(got, "HUMAN-BLOCK") {
+	if strings.Contains(got, "WAITING-ON-HUMAN") {
 		t.Errorf("HUMAN-BLOCK must require the explicit flag; got %q", got)
 	}
 }
@@ -547,23 +548,24 @@ func TestHighlightRunes_OutOfRangeIndicesDropped(t *testing.T) {
 }
 
 func TestRenderStatsLine_CountsHumanAndMine(t *testing.T) {
-	// The mine count tallies Assignee — the field the mine preset
-	// queries (assignee=) — NOT Owner (who filed). a-4 is filed by ev
-	// but assigned elsewhere, so it must not count.
+	// The mine count goes by Turn badge (isMineRow), not by name: the
+	// human rows and a row I claimed, not the WAITING-ON-HUMAN row. a-5 is an
+	// open agent row that merely has my name on it — not mine.
 	issues := []beads.Issue{
-		{ID: "a-1", Labels: []string{"human"}, Assignee: "ev"},
-		{ID: "a-2", Labels: []string{"human", "src:agent"}, Assignee: "ev"},
-		{ID: "a-3", Labels: []string{"src:agent"}, Assignee: "other"},
-		{ID: "a-4", Owner: "ev", Assignee: "other"},
-		{ID: "a-5", Assignee: "ev"},
+		{ID: "a-1", Labels: []string{"human"}},
+		{ID: "a-2", Labels: []string{"human", "src:agent"}, Assignee: "other"},
+		{ID: "a-3", Labels: []string{"src:agent"}, BlockedByHuman: true},
+		{ID: "a-4", Status: "in_progress", Assignee: "ev", Metadata: stampedClaim("ev")},
+		{ID: "a-5", Status: "open", Assignee: "ev", Labels: []string{"src:agent"}},
 	}
 	src := &stubSource{issues: issues}
 	m := applyFetched(New(src).WithMe("ev"), src)
 
 	got := m.renderStatsLine()
-	// 2 human (a-1, a-2), 3 mine (a-1, a-2, a-5 assigned to ev).
-	if !strings.Contains(got, "2 human") {
-		t.Errorf("expected '2 human' in stats; got %q", got)
+	// 3 human (a-1, a-2 + a-4, which I claimed) and the same 3 mine:
+	// a-3 is WAITING-ON-HUMAN, an agent task, so it is in neither.
+	if !strings.Contains(got, "3 human") {
+		t.Errorf("expected '3 human' in stats; got %q", got)
 	}
 	if !strings.Contains(got, "3 mine") {
 		t.Errorf("expected '3 mine' in stats; got %q", got)
@@ -662,8 +664,7 @@ func TestRenderHeader_DecoratedColumnsStayWithinTheirWidth(t *testing.T) {
 		m.cw.typ + sep +
 		m.cw.status + sep +
 		m.cw.prio + sep +
-		m.cw.updated + sep +
-		m.cw.session + sep
+		m.cw.updated + sep // Session is hidden by default
 
 	for _, c := range cases {
 		t.Run(c.label, func(t *testing.T) {
@@ -816,67 +817,99 @@ func TestTruncID(t *testing.T) {
 	}
 }
 
-func TestResponsibilityBadge_Lease(t *testing.T) {
+// stampedClaim is the metadata a wyk claim leaves: what makes an
+// in_progress row "claimed by me" rather than a bare bd claim.
+func stampedClaim(owner string) beads.Metadata {
+	return beads.Metadata{lease.KeyOwner: owner, lease.KeyUntil: "2099-01-01T00:00:00Z"}
+}
+
+func TestResponsibilityBadge_Claims(t *testing.T) {
+	// The Turn column answers "the person's move or an agent's" and
+	// nothing else: no holder name, no expiry.
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	prev := leaseNow
 	leaseNow = func() time.Time { return now }
 	t.Cleanup(func() { leaseNow = prev })
 	stamp := func(d time.Duration) string { return now.Add(d).Format(time.RFC3339) }
+	const me = "jimbottle"
 
-	live := beads.Issue{Status: "in_progress", Labels: []string{"src:agent"},
+	agentLive := beads.Issue{Status: "in_progress", Labels: []string{"src:agent"},
 		Metadata: beads.Metadata{lease.KeyOwner: "claude-a", lease.KeyUntil: stamp(time.Hour)}}
-	if got := responsibilityBadgeFor(live); !strings.Contains(got, "@claude-a") {
-		t.Errorf("live lease should badge @owner; got %q", got)
+	agentLapsed := agentLive
+	agentLapsed.Metadata = beads.Metadata{lease.KeyOwner: "claude-a", lease.KeyUntil: stamp(-time.Hour)}
+	for name, i := range map[string]beads.Issue{"live": agentLive, "lapsed": agentLapsed} {
+		got := responsibilityBadgeFor(i, me)
+		if !strings.Contains(got, "AGENT") || strings.Contains(got, "@") || strings.Contains(got, "EXPIRED") {
+			t.Errorf("an agent's %s claim should badge plain AGENT; got %q", name, got)
+		}
+		if isMineRow(i, me) {
+			t.Errorf("an agent's %s claim must not be in mine", name)
+		}
 	}
-	lapsed := live
-	lapsed.Metadata = beads.Metadata{lease.KeyOwner: "claude-a", lease.KeyUntil: stamp(-time.Hour)}
-	if got := responsibilityBadgeFor(lapsed); !strings.Contains(got, "EXPIRED") {
-		t.Errorf("lapsed lease should badge EXPIRED; got %q", got)
+
+	// The person's own claim is their move, whether or not its TTL has
+	// run out — but only a claim wyk stamped (`x` in the TUI, `wyk
+	// claim`). A bare bd claim under the same name is what an agent's
+	// raw `bd update --claim` leaves behind, since bd's actor in an
+	// agent's shell is the person's git user.name: that stays AGENT.
+	mineStamped := beads.Issue{Status: "in_progress", Labels: []string{"src:agent"},
+		Metadata: beads.Metadata{lease.KeyOwner: me, lease.KeyUntil: stamp(-time.Hour)}}
+	if got := responsibilityBadgeFor(mineStamped, me); !strings.Contains(got, "HUMAN") || strings.Contains(got, "@") {
+		t.Errorf("my stamped claim should badge HUMAN; got %q", got)
 	}
-	// Precedence: an explicit human flag, the agent-handoff fence, and a
-	// human blocker all outrank the lease.
-	h := live
-	h.Labels = []string{"human", "src:agent"}
-	if got := responsibilityBadgeFor(h); !strings.Contains(got, "HUMAN") || strings.Contains(got, "@") {
-		t.Errorf("human label must outrank the lease; got %q", got)
+	if !isMineRow(mineStamped, me) {
+		t.Error("my stamped claim should be in mine")
 	}
-	hb := live
+	mineBare := beads.Issue{Status: "in_progress", Assignee: me, UpdatedAt: now}
+	if got := responsibilityBadgeFor(mineBare, me); !strings.Contains(got, "AGENT") {
+		t.Errorf("a bare bd claim under my name should stay AGENT; got %q", got)
+	}
+	if isMineRow(mineBare, me) || isHumanRow(mineBare, me) {
+		t.Error("a bare bd claim under my name must not be in mine or human")
+	}
+
+	// An assignee alone is not a claim: an OPEN agent row with my name
+	// on it (the my-bangle-unj case) is still the agent's.
+	openMine := beads.Issue{Status: "open", Assignee: me, Labels: []string{"src:agent"}}
+	if got := responsibilityBadgeFor(openMine, me); !strings.Contains(got, "AGENT") {
+		t.Errorf("an open row assigned to me should stay AGENT; got %q", got)
+	}
+	if isMineRow(openMine, me) {
+		t.Error("an open agent row assigned to me must not be in mine")
+	}
+
+	// Precedence over a claim.
+	hb := agentLive
 	hb.BlockedByHuman = true
-	if got := responsibilityBadgeFor(hb); !strings.Contains(got, "HUMAN-BLOCK") {
-		t.Errorf("HUMAN-BLOCK must outrank the lease; got %q", got)
+	if got := responsibilityBadgeFor(hb, me); !strings.Contains(got, "WAITING-ON-HUMAN") {
+		t.Errorf("WAITING-ON-HUMAN must outrank a claim; got %q", got)
 	}
-	// Long owners fit the column; an unrecorded holder still shows.
-	long := live
-	long.Metadata = beads.Metadata{lease.KeyOwner: "a-very-long-agent-identity", lease.KeyUntil: stamp(time.Hour)}
-	if w := lipgloss.Width(responsibilityBadgeFor(long)); w > colResp {
-		t.Errorf("badge width %d exceeds the owner column (%d)", w, colResp)
+	if isMineRow(hb, me) {
+		t.Error("WAITING-ON-HUMAN is an agent task, so not in mine")
 	}
-	anon := beads.Issue{Status: "in_progress", UpdatedAt: now}
-	if got := responsibilityBadgeFor(anon); !strings.Contains(got, "@?") {
-		t.Errorf("unrecorded holder should badge @?; got %q", got)
+	handoff := mineStamped
+	handoff.Labels = []string{"agent-handoff"}
+	if isMineRow(handoff, me) {
+		t.Error("AGENT-HANDOFF is not a human badge, so not in mine")
 	}
-	// Open rows are untouched.
-	if got := responsibilityBadgeFor(beads.Issue{Status: "open", Labels: []string{"src:agent"}}); !strings.Contains(got, "AGENT") {
-		t.Errorf("open row should stay AGENT; got %q", got)
+	// No identity: nothing is claimed by me.
+	if got := responsibilityBadgeFor(mineStamped, ""); !strings.Contains(got, "AGENT") {
+		t.Errorf("with no identity a claim is an agent's; got %q", got)
 	}
 }
 
-func TestLeaseDetailLine(t *testing.T) {
+func TestClaimDetailLine(t *testing.T) {
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	prev := leaseNow
 	leaseNow = func() time.Time { return now }
 	t.Cleanup(func() { leaseNow = prev })
 	i := beads.Issue{Status: "in_progress", Metadata: beads.Metadata{
-		lease.KeyOwner: "claude-a", lease.KeyUntil: now.Add(90 * time.Minute).Format(time.RFC3339), lease.KeyBranch: "feat/x"}}
-	if got, want := leaseDetailLine(i), "claude-a · 1h30m left · on feat/x"; got != want {
-		t.Errorf("got %q, want %q", got, want)
+		lease.KeyOwner: "claude-a", lease.KeyUntil: now.Add(-90 * time.Minute).Format(time.RFC3339), lease.KeyBranch: "feat/x"}}
+	if got, want := claimDetailLine(i), "claude-a · on feat/x"; got != want {
+		t.Errorf("got %q, want %q (no time limit, lapsed or not)", got, want)
 	}
-	bare := beads.Issue{Status: "in_progress", Assignee: "jimbottle", UpdatedAt: now}
-	if got := leaseDetailLine(bare); !strings.Contains(got, "inferred") {
-		t.Errorf("bare bd claim should be marked inferred; got %q", got)
-	}
-	if got := leaseDetailLine(beads.Issue{Status: "open"}); got != "" {
-		t.Errorf("unclaimed issue should have no lease line; got %q", got)
+	if got := claimDetailLine(beads.Issue{Status: "open"}); got != "" {
+		t.Errorf("unclaimed issue should have no claim line; got %q", got)
 	}
 }
 

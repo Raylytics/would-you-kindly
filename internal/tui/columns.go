@@ -37,7 +37,7 @@ type toggleableCol struct {
 // 1. Multi-only columns sit at the top so the numbers stay stable
 // when the view switches between single- and multi-repo modes.
 var toggleableColumns = []toggleableCol{
-	{ID: colIDOwner, Label: "Owner"},
+	{ID: colIDOwner, Label: "Turn"},
 	{ID: colIDRepo, Label: "Repo", MultiOnly: true},
 	{ID: colIDBranch, Label: "Branch", MultiOnly: true},
 	{ID: colIDType, Label: "Type"},

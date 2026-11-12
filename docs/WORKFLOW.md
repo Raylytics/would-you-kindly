@@ -43,7 +43,8 @@ it closes the issue (§4).
 
 A `PreToolUse` hook in [`.claude/settings.json`](../.claude/settings.json)
 (`wyk hook bd-create-guard`) redirects a bare `bd create` to `wyk create`
-so the stamps can't be skipped by forgetting.
+so the stamps can't be skipped by forgetting, and a bare
+`bd update <id> --claim` to `wyk claim` so the claim is the agent's.
 
 ## 2. Handing the human-only step back
 
@@ -60,8 +61,8 @@ handed would-you-kindly-2oa to human (327-byte runbook)
 `would-you-kindly-2oa` is a real closed issue in this tracker. Its
 description is a five-step runbook (open the 1Password entry, generate,
 `heroku config:set …`, update the entry, close the issue); its labels are
-`human, src:agent`. The **Owner** column in the TUI renders it `HUMAN`,
-and `wyk -preset human` (or `h` in the TUI) shows nothing but rows like
+`human, src:agent`. The **Turn** column in the TUI renders it `HUMAN`,
+and `wyk -preset human` (or `tab` in the TUI) shows nothing but rows like
 it.
 
 The contract is deliberately tiny — one label, one description field —
@@ -77,8 +78,8 @@ human tagged the release and closed it.
 
 ## 3. The human works the queue in the TUI
 
-`wyk` is the human's window. The Owner column answers "whose move is
-it?" for every row; `h` filters to the human's rows; on a wide terminal
+`wyk` is the human's window. The Turn column answers "whose move is
+it?" for every row; `tab` cycles to the human's rows; on a wide terminal
 the runbook sits in a pane next to the list and follows the cursor, so
 triage is `j`, read, `a` (close) or `H` (bounce back to the agent).
 
