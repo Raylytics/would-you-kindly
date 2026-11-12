@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -98,6 +99,51 @@ func TestRedactQuotes_Heredoc(t *testing.T) {
 		if got := redactQuotes(c.in); got != c.want {
 			t.Errorf("redactQuotes(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestBDClaimGuard(t *testing.T) {
+	// A raw `bd update --claim` records the claim under the human's git
+	// user.name; the guard redirects it to `wyk claim`.
+	cases := []struct {
+		name string
+		cmd  string
+		want int // 0 allow, 2 block
+	}{
+		{"bd update --claim blocks", "bd update my-1 --claim", 2},
+		{"claim before the id blocks", "bd update --claim my-1", 2},
+		{"chained with other work blocks", "bd update my-1 --claim 2>&1 | tail -1 && mkdir -p x", 2},
+		{"after cd blocks", "cd x && bd update my-1 --claim", 2},
+		{"with other flags blocks", "bd update my-1 --notes=x --claim", 2},
+		{"plain bd update allowed", "bd update my-1 --status=open", 0},
+		{"wyk claim allowed", "wyk claim my-1", 0},
+		{"--claim on a later command allowed", "bd update my-1 --notes=x; wyk claim --claim", 0},
+		{"explicit actor allowed", "bd --actor reviewer update my-1 --claim", 0},
+		{"quoted mention allowed", "git commit -m 'stop using bd update x --claim'", 0},
+		{"a longer flag is not --claim", "bd update my-1 --claimed-by=x", 0},
+		{"inline bypass allowed", "WYK_ALLOW_BD_CLAIM=1 bd update my-1 --claim", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{
+				"tool_name":  "Bash",
+				"tool_input": map[string]string{"command": c.cmd},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := runHookBDCreateGuard(strings.NewReader(string(payload))); got != c.want {
+				t.Errorf("%q: exit %d, want %d", c.cmd, got, c.want)
+			}
+		})
+	}
+}
+
+func TestBDClaimGuard_BypassEnv(t *testing.T) {
+	t.Setenv("WYK_ALLOW_BD_CLAIM", "1")
+	payload := `{"tool_name":"Bash","tool_input":{"command":"bd update my-1 --claim"}}`
+	if got := runHookBDCreateGuard(strings.NewReader(payload)); got != 0 {
+		t.Errorf("WYK_ALLOW_BD_CLAIM=1 should bypass; got exit %d", got)
 	}
 }
 
