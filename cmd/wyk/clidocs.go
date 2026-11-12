@@ -154,7 +154,7 @@ var cliSubcommandDocs = []cliSubcommandDoc{
 	},
 	{
 		Name:    "next",
-		Summary: "What should I work on? One ranked list for an agent: inbox items first (work a human bounced back), then `bd ready`, minus anything another identity holds a LIVE lease on, minus `agent-handoff` and `human` rows. -claim atomically claims the top pick (wyk-contract/v4).",
+		Summary: "What should I work on? One ranked list for an agent: agent inbox items first (work a human bounced back), then `bd ready`, minus anything another identity holds a LIVE lease on, minus `agent-handoff` and `human` rows. -claim atomically claims the top pick (wyk-contract/v4).",
 		Usage:   "wyk next [-C <dir>] [-all] [-repo name] [-identity name] [-limit N] [-claim] [-json] [-compact] [-slim]",
 		Examples: []string{
 			"wyk next                 # ranked, with each row's lease state",
@@ -243,7 +243,7 @@ var cliSubcommandDocs = []cliSubcommandDoc{
 	},
 	{
 		Name:    "conventions",
-		Summary: "Print the agent-facing label convention (human, src:agent, inbox query).",
+		Summary: "Print the agent-facing label convention (human, src:agent, agent inbox query).",
 		Usage:   "wyk conventions [-json]",
 		Examples: []string{
 			"wyk conventions    # agents: run this before writing to bd here",

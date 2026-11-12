@@ -58,12 +58,13 @@ func TestClaim_KeyClaimsCursorRow(t *testing.T) {
 	}
 	model, cmd := m.Update(msg)
 	m = model.(Model)
-	want := "claimed " + target.ID + " as claude-abc12345 until " + until.Local().Format("15:04")
+	// One word, no holder name, no time limit.
+	want := "claimed " + target.ID
 	if m.status != want {
 		t.Errorf("status = %q, want %q", m.status, want)
 	}
 	if cmd == nil {
-		t.Error("a landed claim should refetch so the Owner column updates")
+		t.Error("a landed claim should refetch so the Turn column updates")
 	}
 	if m.lastAction.kind != "claim" {
 		t.Errorf("lastAction = %+v, want claim (for .)", m.lastAction)
@@ -74,11 +75,11 @@ func TestClaim_RenewAndTakeoverBanners(t *testing.T) {
 	m, _ := claimModel(t, &stubClaimer{})
 	i := m.visible[0]
 	model, _ := m.Update(claimMsg{issue: i, res: ClaimResult{Action: "renewed", Owner: "me"}})
-	if got := model.(Model).status; got != "renewed "+i.ID+" for me" {
+	if got := model.(Model).status; got != i.ID+" is already claimed by you" {
 		t.Errorf("renew banner = %q", got)
 	}
 	model, _ = m.Update(claimMsg{issue: i, res: ClaimResult{Action: "took-over", Owner: "me", Previous: "claude-old"}})
-	if got := model.(Model).status; got != "took over "+i.ID+" from claude-old as me" {
+	if got := model.(Model).status; got != "claimed "+i.ID+" (was claimed by claude-old)" {
 		t.Errorf("takeover banner = %q", got)
 	}
 }

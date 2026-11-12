@@ -124,7 +124,7 @@ Exceptions:
   - The 'What unblocks me when this returns' artifact is actually
     missing (re-flag 'human' with a note explaining what's still
     needed; don't sit silently).
-  - The row renders as HUMAN-BLOCK in the TUI — an agent task
+  - The row renders as WAITING-ON-HUMAN in the TUI — an agent task
     whose dependency set includes a human-labeled task. The
     blocker isn't closed yet, so the agent literally can't move
     this row forward. Skip to the next inbox item.

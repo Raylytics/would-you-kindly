@@ -25,6 +25,7 @@ import (
 	"github.com/jimbottle/would-you-kindly/internal/beads"
 	"github.com/jimbottle/would-you-kindly/internal/filter"
 	"github.com/jimbottle/would-you-kindly/internal/filters"
+	"github.com/jimbottle/would-you-kindly/internal/uiconfig"
 )
 
 // refreshInterval is how often the TUI polls bd for changes. A timer
@@ -197,14 +198,6 @@ type Model struct {
 	claimer Claimer
 	mode    mode
 	preset  filter.Preset
-
-	// humanReturnPreset is the preset the user was on when they
-	// pressed `h` to jump into the human view, so a second `h`
-	// toggles back to it instead of being a one-way trip. Empty (or
-	// itself "human") falls back to PresetAll. Recorded only on the
-	// way IN so a stray double-press can't strand the return target
-	// on "human".
-	humanReturnPreset filter.Preset
 
 	// presetCache holds the last successful fetch for each preset so
 	// switching back to a preset paints its rows INSTANTLY instead of
@@ -421,7 +414,7 @@ type Model struct {
 	dragGrab   int
 
 	// layoutPref is the user's split-vs-stacked choice for the detail
-	// pane (`p`), restored from state.json. Zero value = auto: split
+	// pane (`L`), restored from state.json. Zero value = auto: split
 	// when the terminal clears splitMinWidth×splitMinHeight. See
 	// split.go.
 	layoutPref layoutPref
@@ -661,7 +654,7 @@ func New(src Source) Model {
 	ti.CharLimit = 200
 
 	na := textarea.New()
-	na.Placeholder = "append a note (ctrl+s submit, esc cancel; enter inserts a newline)"
+	na.Placeholder = "add a comment (ctrl+s submit, esc cancel; enter inserts a newline)"
 	na.SetWidth(80)
 	na.SetHeight(6)
 	na.ShowLineNumbers = false
@@ -671,9 +664,12 @@ func New(src Source) Model {
 	sp.Style = setupHintStyle
 
 	m := Model{
-		fetches:        &fetchController{},
-		src:            src,
-		keys:           defaultKeyMap(),
+		fetches: &fetchController{},
+		src:     src,
+		keys:    defaultKeyMap(),
+		// Start from the default column set (Session hidden); main
+		// overrides this from ui.json via WithHiddenColumns.
+		colsHidden:     uiconfig.Config{}.HiddenSet(),
 		mode:           modeList,
 		preset:         filter.PresetAll,
 		input:          ti,
@@ -1969,6 +1965,12 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyHit(msg, m.keys.Bottom):
 		m.cursor = max(0, len(m.visible)-1)
 		m.ensureCursorVisible()
+	case keyHit(msg, m.keys.PageDown):
+		m.cursor = max(0, min(len(m.visible)-1, m.cursor+max(1, m.bodyHeight())))
+		m.ensureCursorVisible()
+	case keyHit(msg, m.keys.PageUp):
+		m.cursor = max(0, m.cursor-max(1, m.bodyHeight()))
+		m.ensureCursorVisible()
 	case keyHit(msg, m.keys.Layout):
 		return m.toggleLayout()
 	case keyHit(msg, m.keys.Open):
@@ -1979,18 +1981,6 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input.Focus()
 		m.ensureCursorVisible()
 		return m, textinput.Blink
-	case keyHit(msg, m.keys.Human):
-		// `h` toggles the human view: jump in from wherever you are,
-		// press again to return to the view you came from (default
-		// all).
-		if m.preset == filter.PresetHuman {
-			target := m.humanReturnPreset
-			if target == "" || target == filter.PresetHuman {
-				target = filter.PresetAll
-			}
-			return m.switchPreset(target)
-		}
-		return m.switchPreset(filter.PresetHuman)
 	case keyHit(msg, m.keys.Cycle):
 		return m.switchPreset(filter.NextPreset(m.preset))
 	case keyHit(msg, m.keys.FilterP0):

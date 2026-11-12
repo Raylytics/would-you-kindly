@@ -980,12 +980,11 @@ Session column traces work back to a conversation. A PreToolUse hook
 blocks raw ` + "`bd create`" + ` and tells you to switch; that's expected — just
 re-run as ` + "`wyk create`" + `.
 
-**Owner column** — whose move it is, label-driven (NOT bd's owner/assignee):
+**Turn column** — whose move it is, label-driven (NOT bd's owner/assignee):
 - ` + "`human`" + ` → **HUMAN** (a human must act).
 - ` + "`agent-handoff`" + ` → **AGENT-HANDOFF**: another agent owns it; don't touch,
   a human coordinates. Excluded from ` + "`wyk inbox`" + `.
-- agent task blocked by a ` + "`human`" + `-flagged dep → **HUMAN-BLOCK** (skip it).
-- checked out by an agent → **@<owner>** (a live lease); lapsed → **EXPIRED**.
+- agent task blocked by a ` + "`human`" + `-flagged dep → **WAITING-ON-HUMAN** (skip it).
 - else → **AGENT** (the default; a null owner is never blank — so a task
   that needs a human MUST be handed off, or the human never sees it).
 
@@ -997,7 +996,7 @@ directions they follow) or a **question** (the human ANSWERS/DECIDES →
 ` + "`## Question`" + `, with options + your recommendation). ` + "`wyk handoff`" + ` refuses a
 runbook with neither. ` + "`wyk handoff -template [-question]`" + ` prints the skeleton.
 
-**Pick up work**: ` + "`wyk next -claim`" + ` — your held work, then the inbox (items
+**Pick up work**: ` + "`wyk next -claim`" + ` — your held work, then the agent inbox (items
 bounced back to you — WORK them), then ready work — and checks the top pick
 out as an expiring lease so other agents in this repo leave it alone. Work on
 your own branch. A ` + "`@<owner>`" + ` row is another agent's: don't touch it;

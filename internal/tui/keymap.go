@@ -13,24 +13,36 @@ var _ help.KeyMap = keyMap{}
 
 // keyMap collects all bindings the TUI responds to. Kept on the
 // model so the help line in the status bar can render them.
+//
+// Where wyk and roborev's TUI do the same thing, they use the same
+// key (a close, c comment, y copy, f filter, o columns, L layout,
+// g/G, home/end, pgup/pgdn, ctrl+p/ctrl+n, h closed) so the two can be driven
+// side by side from one set of habits. The wyk keys these replaced
+// stay as silent aliases (/, n, p, C). h is roborev's hide-closed
+// toggle; the human view it used to jump to is one of the tab presets.
+// Not matched on purpose: roborev's u/d paging, which are undo and
+// defer here, and ctrl+d quit, which is half-page-down in the detail
+// viewport.
 type keyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Top     key.Binding
-	Bottom  key.Binding
-	Open    key.Binding
-	Back    key.Binding
-	Filter  key.Binding
-	Human   key.Binding
-	Cycle   key.Binding
-	Refresh key.Binding
-	Quit    key.Binding
+	Up     key.Binding
+	Down   key.Binding
+	Top    key.Binding
+	Bottom key.Binding
+	// PageUp / PageDown move the list cursor a screenful at a time.
+	PageUp   key.Binding // pgup
+	PageDown key.Binding // pgdn
+	Open     key.Binding
+	Back     key.Binding
+	Filter   key.Binding
+	Cycle    key.Binding
+	Refresh  key.Binding
+	Quit     key.Binding
 
 	// Write actions (Phase 2). These are only honored when the Source
 	// also implements Mutator; otherwise they print a "read-only" hint.
 	Close       key.Binding // a — close the cursor issue (with confirmation)
 	ToggleHuman key.Binding // H — add/remove the 'human' label on the cursor issue
-	AddNote     key.Binding // n — append a note to the cursor issue
+	AddNote     key.Binding // c (alias n) — append a note to the cursor issue
 	QuickAdd    key.Binding // N — file a new issue inline (title-only prompt)
 
 	// Navigation jumps (Phase 3.B.2): bracket through the human-flagged
@@ -63,7 +75,7 @@ type keyMap struct {
 	// and `bd list --all`; other presets drop the `status!=closed`
 	// clause from their query. A chip surfaces in the filter strip
 	// when active.
-	ShowClosed key.Binding // C — toggle show-closed
+	ShowClosed key.Binding // h (alias C) — toggle show-closed
 
 	// Columns opens the column-visibility overlay so a user
 	// triaging on a narrow pane can hide secondary columns
@@ -181,7 +193,7 @@ type keyMap struct {
 	// present) — mirrors how H toggles the `human` label
 	// specifically. Empty submission cancels. Bulk path is add-
 	// only (matches H's bulk behavior).
-	Label key.Binding // L — toggle an arbitrary label
+	Label key.Binding // l — toggle an arbitrary label
 
 	// Editor suspends the TUI (tea.ExecProcess), opens the cursor
 	// issue's description in $EDITOR (fallback `vi`), and on
@@ -199,29 +211,32 @@ type keyMap struct {
 	// Split layout (split.go): Layout toggles the detail pane; the
 	// Pane* bindings are help-only entries for keys updateDetail already
 	// handles, so the status-bar grid can describe the focused pane.
-	Layout     key.Binding // p — show/hide the detail pane
+	Layout     key.Binding // L (alias p) — show/hide the detail pane
 	PaneScroll key.Binding // j/k — scroll the pane body
 	PaneLink   key.Binding // tab — cycle dependency links in the pane
-	PaneCopy   key.Binding // c — copy the runbook from the pane
+	PaneCopy   key.Binding // y — copy the runbook from the pane
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
-		Up:      key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "up")),
-		Down:    key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/k", "nav")), // ShortHelp uses Down's help string for the combined j/k hint; Up's "k up" still surfaces in the FullHelp overlay.
-		Top:     key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "top")),
-		Bottom:  key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "bottom")),
-		Open:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open")),
-		Back:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
-		Filter:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-		Human:   key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "toggle human")),
-		Cycle:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preset")),
-		Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
-		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Up:     key.NewBinding(key.WithKeys("k", "up", "ctrl+p"), key.WithHelp("k", "up")),
+		Down:   key.NewBinding(key.WithKeys("j", "down", "ctrl+n"), key.WithHelp("j/k", "nav")), // ShortHelp uses Down's help string for the combined j/k hint; Up's "k up" still surfaces in the FullHelp overlay.
+		Top:    key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),
+		Bottom: key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
+		// List paging. roborev also pages on u/d, but those are undo
+		// and defer here, so only the unambiguous keys are bound.
+		PageUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "page down")),
+		Open:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "open")),
+		Back:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+		Filter:   key.NewBinding(key.WithKeys("f", "/"), key.WithHelp("f", "filter")),
+		Cycle:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next view")),
+		Refresh:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+		Quit:     key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		Close:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "close")),
-		ToggleHuman: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "±human")),
-		AddNote:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "note")),
+		ToggleHuman: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "hand to me/send back")),
+		AddNote:     key.NewBinding(key.WithKeys("c", "n"), key.WithHelp("c", "comment")),
 		QuickAdd:    key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new issue")),
 
 		JumpNextHuman: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next human")),
@@ -229,38 +244,38 @@ func defaultKeyMap() keyMap {
 
 		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 
-		FilterP0:   key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "P0 only")),
-		FilterP1:   key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "≤P1")),
-		FilterP2:   key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "≤P2")),
-		FilterP3:   key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "≤P3")),
-		FilterPAll: key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "all P")),
+		FilterP0:   key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "most urgent only (P0)")),
+		FilterP1:   key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "P0–P1")),
+		FilterP2:   key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "P0–P2")),
+		FilterP3:   key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "P0–P3")),
+		FilterPAll: key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "any priority")),
 
 		SortCycle:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
-		ShowClosed:      key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "±closed")),
+		ShowClosed:      key.NewBinding(key.WithKeys("h", "C"), key.WithHelp("h", "show/hide closed")),
 		Columns:         key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "columns")),
-		Yank:            key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yank ID")),
-		YankRich:        key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "yank ID — title")),
-		YankAll:         key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "yank all visible IDs")),
-		YankMarkdown:    key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "yank as markdown task")),
-		YankAllMarkdown: key.NewBinding(key.WithKeys("_"), key.WithHelp("_", "yank all as markdown")),
+		Yank:            key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy ID")),
+		YankRich:        key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "copy ID — title")),
+		YankAll:         key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "copy all visible IDs")),
+		YankMarkdown:    key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "copy as markdown task")),
+		YankAllMarkdown: key.NewBinding(key.WithKeys("_"), key.WithHelp("_", "copy all as markdown")),
 		Undo:            key.NewBinding(key.WithKeys("u", "ctrl+z"), key.WithHelp("u/^z", "undo close")),
-		Claim:           key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "claim (lease)")),
+		Claim:           key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "claim")),
 		Defer:           key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "defer")),
 		Mark:            key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "mark")),
 		SortReverse:     key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
 		Mouse:           key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mouse capture")),
 		Command:         key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command")),
-		PriorityUp:      key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "↑prio")),
+		PriorityUp:      key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "more urgent")),
 		TypeCycle:       key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "cycle type")),
-		PriorityDown:    key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "↓prio")),
+		PriorityDown:    key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "less urgent")),
 		AssignOwner:     key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "assignee")),
-		Label:           key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "label")),
-		Editor:          key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+		Label:           key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "label")),
+		Editor:          key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit instructions")),
 		Repeat:          key.NewBinding(key.WithKeys("."), key.WithHelp(".", "repeat last")),
-		Layout:          key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "±pane")),
+		Layout:          key.NewBinding(key.WithKeys("L", "p"), key.WithHelp("L", "show/hide pane")),
 		PaneScroll:      key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "scroll")),
 		PaneLink:        key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "link")),
-		PaneCopy:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy runbook")),
+		PaneCopy:        key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy instructions")),
 	}
 }
 
@@ -272,7 +287,7 @@ func defaultKeyMap() keyMap {
 // model swaps in shortHelpReadOnly when rendering.
 func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
-		k.Down, k.Open, k.Filter, k.Human, k.Cycle, k.Refresh,
+		k.Down, k.Open, k.Filter, k.ShowClosed, k.Cycle, k.Refresh,
 		k.Close, k.ToggleHuman, k.AddNote, k.Undo, k.Layout, k.Help, k.Quit,
 	}
 }
@@ -283,7 +298,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 // mode" banner on press).
 func (k keyMap) shortHelpReadOnly() []key.Binding {
 	return []key.Binding{
-		k.Down, k.Open, k.Filter, k.Human, k.Cycle, k.Refresh,
+		k.Down, k.Open, k.Filter, k.ShowClosed, k.Cycle, k.Refresh,
 		k.Layout, k.Help, k.Quit,
 	}
 }
@@ -304,24 +319,28 @@ func DocsKeymap() []HelpGroup {
 	k := defaultKeyMap()
 	return []HelpGroup{
 		{"Navigation", []key.Binding{
-			k.Up, k.Down, k.Top, k.Bottom, k.Open, k.Back, k.Layout,
+			k.Up, k.Down, k.Top, k.Bottom, k.PageUp, k.PageDown, k.Open, k.Back, k.Layout,
 			k.JumpPrevHuman, k.JumpNextHuman,
 		}},
 		{"Detail pane / view", []key.Binding{
 			k.PaneScroll, k.PaneLink, k.PaneCopy,
 		}},
 		{"Filters & sort", []key.Binding{
-			k.Filter, k.Human, k.Cycle, k.SortCycle, k.SortReverse,
+			k.Filter, k.Cycle, k.SortCycle, k.SortReverse,
 			k.ShowClosed, k.Columns,
 			k.FilterP0, k.FilterP1, k.FilterP2, k.FilterP3, k.FilterPAll,
 		}},
 		{"Writes", []key.Binding{
 			k.Close, k.ToggleHuman, k.Claim, k.AddNote, k.QuickAdd, k.Defer,
-			k.AssignOwner, k.Label, k.Editor, k.PriorityUp, k.PriorityDown, k.TypeCycle,
+			k.Label, k.Editor, k.PriorityUp, k.PriorityDown, k.TypeCycle,
 			k.Mark, k.Undo, k.Repeat,
 		}},
 		{"Clipboard / command", []key.Binding{k.Yank, k.YankRich, k.YankAll, k.YankMarkdown, k.YankAllMarkdown, k.Command}},
 		{"Meta", []key.Binding{k.Refresh, k.Mouse, k.Help, k.Quit}},
+		// wyk is run by one person with their own agents. What only
+		// matters with several people or several named agents still
+		// works, but lives here, out of the everyday groups.
+		{"Multi-agent (rarely needed)", []key.Binding{k.AssignOwner}},
 	}
 }
 
@@ -360,9 +379,10 @@ func KeymapMarkdown() string {
 // automatically.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Top, k.Bottom, k.Open, k.Back, k.Layout, k.JumpPrevHuman, k.JumpNextHuman},
-		{k.Filter, k.Human, k.Cycle, k.FilterP0, k.FilterP1, k.FilterP2, k.FilterP3, k.FilterPAll, k.SortCycle, k.SortReverse, k.ShowClosed, k.Columns},
-		{k.Close, k.ToggleHuman, k.Claim, k.AddNote, k.QuickAdd, k.Yank, k.YankRich, k.YankAll, k.YankMarkdown, k.YankAllMarkdown, k.Undo, k.Defer, k.Mark, k.PriorityUp, k.PriorityDown, k.TypeCycle, k.AssignOwner, k.Label, k.Editor, k.Repeat},
+		{k.Up, k.Down, k.Top, k.Bottom, k.PageUp, k.PageDown, k.Open, k.Back, k.Layout, k.JumpPrevHuman, k.JumpNextHuman},
+		{k.Filter, k.Cycle, k.FilterP0, k.FilterP1, k.FilterP2, k.FilterP3, k.FilterPAll, k.SortCycle, k.SortReverse, k.ShowClosed, k.Columns},
+		{k.Close, k.ToggleHuman, k.Claim, k.AddNote, k.QuickAdd, k.Yank, k.YankRich, k.YankAll, k.YankMarkdown, k.YankAllMarkdown, k.Undo, k.Defer, k.Mark, k.PriorityUp, k.PriorityDown, k.TypeCycle, k.Label, k.Editor, k.Repeat},
 		{k.Refresh, k.Mouse, k.Help, k.Quit, k.Command},
+		{k.AssignOwner},
 	}
 }

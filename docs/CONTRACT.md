@@ -41,7 +41,7 @@ back to the agent, they remove the `human` label (`bd label remove
 
 bd (1.0.4) ships a native **`bd human`** command family that reads the
 same `human` label this contract writes, so the two interoperate
-directly: `bd human list` is the human-side view (wyk's `h` preset),
+directly: `bd human list` is the human-side view (wyk's `human` preset),
 `bd human stats` summarizes it, and `bd human respond <id>` adds a
 comment **and closes** — equivalent to "done, with an answer". Note the
 asymmetry: `bd human respond` ends the round-trip; it is NOT the
@@ -211,9 +211,9 @@ whose lease lapsed is mine to resume; re-claiming it just renews.
 **What a reader does with a lease** — the rule every consumer (`wyk
 next`, the TUI's owner badge, the agent's own judgement) follows:
 
-- Live, someone else's → **don't touch it.** It renders `@<owner>`.
+- Live, someone else's → **don't touch it.** (`wyk claim` names the holder; the TUI shows only `AGENT`.)
 - Live, mine → resume it; renew while working.
-- Expired → claimable. It renders `EXPIRED`; `wyk next` offers it.
+- Expired → claimable; `wyk next` offers it. The TUI does not show expiry.
 
 `agent-handoff` stays the orthogonal, human-orchestrated fence: a lease
 says who is on an issue *now* and lapses on its own; `agent-handoff`
@@ -304,7 +304,7 @@ Exceptions are narrow:
 - The "What unblocks me when this returns" artifact is genuinely
   missing (re-flag `human` with a note explaining what's still
   needed — don't sit silently with a half-resolved issue).
-- The row renders as **HUMAN-BLOCK** in the TUI's `owner` column.
+- The row renders as **WAITING-ON-HUMAN** in the TUI's Turn column.
   This is an `src:agent` issue with at least one `human`-labeled
   blocker via `bd dep add`. The agent cannot make progress on
   these rows until the blocker closes; the convention treats them
@@ -315,9 +315,9 @@ Exceptions are narrow:
 
 When more than one agent works the same repo, an agent that must
 **not** touch a task another agent owns flags it with the
-`agent-handoff` label. The row then renders as **AGENT-HANDOFF** in
-the TUI's `owner` column (a distinct fourth state alongside HUMAN,
-AGENT, and HUMAN-BLOCK), and the inbox query excludes it so the
+`agent-handoff` label. The row then renders as **OTHER-AGENT** in
+the TUI's Turn column (a distinct fourth state alongside HUMAN,
+AGENT, and WAITING-ON-HUMAN), and the inbox query excludes it so the
 "work them now" imperative never fires on it.
 
 The assumption is that **a human orchestrates** the coordination —

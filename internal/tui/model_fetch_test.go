@@ -42,7 +42,7 @@ func TestStaleFetchIsDroppedAfterPresetChange(t *testing.T) {
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model, _ := m.switchPreset(filter.PresetHuman)
 	m = model.(Model)
 	if !m.refreshing {
 		t.Errorf("preset switch should set refreshing=true; got false")

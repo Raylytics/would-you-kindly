@@ -291,7 +291,7 @@ func main() {
 			// Don't touch the file. Leave columns at default for
 			// this session.
 		default:
-			model = model.WithHiddenColumns(map[string]bool{}, uiPath)
+			model = model.WithHiddenColumns(uiconfig.Config{}.HiddenSet(), uiPath)
 		}
 	}
 	// Load filter aliases (~/.config/wyk/filters.json) so @name
@@ -1317,7 +1317,7 @@ Top-level flags (TUI / --probe mode):
 `)
 	flag.PrintDefaults()
 	fmt.Fprint(w, `
-For the agent-facing labels (`+"`human`"+`, `+"`src:agent`"+`) and the inbox
+For the agent-facing labels (`+"`human`"+`, `+"`src:agent`"+`) and the agent inbox
 query, run: wyk conventions
 `)
 }

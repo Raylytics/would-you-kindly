@@ -27,7 +27,7 @@ func (m Model) beginCommand() (tea.Model, tea.Cmd) {
 	m.mode = modeCommand
 	m.input.SetValue("")
 	m.input.Prompt = ":"
-	m.input.Placeholder = "refresh / preset <name> / sort <axis> / reverse / filter save|list|remove"
+	m.input.Placeholder = "refresh / view <name> / sort <axis> / reverse / filter save|list|remove"
 	m.input.Focus()
 	return m, textinput.Blink
 }
@@ -72,8 +72,14 @@ func (m Model) dispatchCommand(raw string) (tea.Model, tea.Cmd) {
 	switch name {
 	case "refresh":
 		return m.manualRefresh()
-	case "preset":
+	case "view", "preset":
 		p := filter.Preset(rest)
+		// The on-screen names work too ("can start", "code review").
+		for _, q := range filter.AllPresets() {
+			if viewName(q) == rest {
+				p = q
+			}
+		}
 		// Reject unknown presets early — silently switching to a
 		// no-op preset would just confuse the user about why the
 		// list didn't change.
@@ -85,7 +91,7 @@ func (m Model) dispatchCommand(raw string) (tea.Model, tea.Cmd) {
 			}
 		}
 		if !known {
-			m.setStatus(":preset: unknown name " + fmt.Sprintf("%q", rest))
+			m.setStatus(":view: unknown name " + fmt.Sprintf("%q", rest))
 			return m, flashClearCmd(m.statusGen)
 		}
 		return m.switchPreset(p)
@@ -135,7 +141,7 @@ func (m Model) dispatchCommand(raw string) (tea.Model, tea.Cmd) {
 		}
 		return m.dispatchPaletteLabel(rest)
 	default:
-		m.setStatus(":" + name + ": unknown command. Known: refresh, preset, sort, reverse, filter <save <name>|list|remove <name>>, assign, priority <0-4>, label, bd <args>, help")
+		m.setStatus(":" + name + ": unknown command. Known: refresh, view, sort, reverse, filter <save <name>|list|remove <name>>, assign, priority <0-4>, label, bd <args>, help")
 		return m, flashClearCmd(m.statusGen)
 	}
 }

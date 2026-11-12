@@ -386,13 +386,13 @@ func (m Model) updateNote(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.promptReturn = modeList
 		m.noteArea.Blur()
 		if text == "" {
-			m.setStatus("note cancelled (empty)")
+			m.setStatus("comment cancelled (empty)")
 			return m, nil
 		}
 		// Detail path trusts its snapshot (see updateConfirmClose);
 		// the list path guards against a refetch removing the row.
 		if !fromDetail && !m.issueExists(target.ID) {
-			m.setStatus("note cancelled: " + target.ID + " was removed from the workspace by a refresh")
+			m.setStatus("comment cancelled: " + target.ID + " was removed from the workspace by a refresh")
 			return m, nil
 		}
 		// Optimistically append the note to the detail body so it
@@ -680,13 +680,28 @@ type bulkWriteMsg struct {
 // "type 3 rows" (would-you-kindly-6gjb).
 var bulkVerbs = map[string]string{
 	"close":    "closed",
-	"flag":     "flagged",
+	"flag":     "handed over",
 	"defer":    "deferred",
 	"priority": "reprioritized",
 	"assign":   "reassigned",
 	"label":    "labeled",
 	"type":     "retyped",
 	"claim":    "claimed",
+}
+
+// actionWord is the on-screen name of a write action, for failure
+// banners. The internal tags (flag / unflag / note) are bd-shaped; the
+// person reads "hand to me", "send back" and "comment".
+func actionWord(action string) string {
+	switch action {
+	case "flag":
+		return "hand to me"
+	case "unflag":
+		return "send back"
+	case "note":
+		return "comment"
+	}
+	return action
 }
 
 // usesTextInput reports whether the current mode renders the shared
@@ -793,7 +808,7 @@ func (m Model) handleWriteResult(msg writeMsg) (tea.Model, tea.Cmd) {
 		if msg.id == "" {
 			m.setStatus(fmt.Sprintf("%s failed: %s", msg.action, msg.err.Error()))
 		} else {
-			m.setStatus(fmt.Sprintf("%s %s failed: %s", msg.action, msg.id, msg.err.Error()))
+			m.setStatus(fmt.Sprintf("%s %s failed: %s", actionWord(msg.action), msg.id, msg.err.Error()))
 		}
 		// Errors stay until the next user action (any keystroke in
 		// updateList clears m.status). A 4s auto-wipe is too short
@@ -818,11 +833,11 @@ func (m Model) handleWriteResult(msg writeMsg) (tea.Model, tea.Cmd) {
 	case "edit":
 		m.setStatus("edited " + msg.id)
 	case "flag":
-		m.setStatus("flagged " + msg.id + " for human")
+		m.setStatus("handed " + msg.id + " to you")
 	case "unflag":
-		m.setStatus("unflagged " + msg.id)
+		m.setStatus("sent " + msg.id + " back to the agent")
 	case "note":
-		m.setStatus("noted " + msg.id)
+		m.setStatus("commented on " + msg.id)
 	case "create":
 		m.setStatus("created " + msg.id)
 	default:
@@ -1121,7 +1136,7 @@ func (m Model) beginEdit() (tea.Model, tea.Cmd) {
 		// bd history, which wyk doesn't surface. (would-you-kindly-quep)
 		full, err := d.Detail(context.Background(), target)
 		if err != nil {
-			m.setStatus("edit aborted: couldn't load full description (" + err.Error() + ")")
+			m.setStatus("edit aborted: couldn't load the full instructions (" + err.Error() + ")")
 			return m, flashClearCmd(m.statusGen)
 		}
 		body = full.Description

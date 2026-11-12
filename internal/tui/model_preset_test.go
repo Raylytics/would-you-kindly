@@ -16,17 +16,26 @@ import (
 // Go compiles the package identically either way, so this is navigation
 // only — no test body was changed in the move.
 
-func TestHumanKeyJumpsToHumanPreset(t *testing.T) {
+func TestHKeyTogglesClosedNotHumanView(t *testing.T) {
+	// `h` is roborev's hide-closed key. It used to jump to the human
+	// view, which tab already reaches.
 	src := &stubSource{issues: sampleIssues()}
 	m := applyFetched(New(src), src)
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	m = model.(Model)
-	if m.preset != filter.PresetHuman {
-		t.Errorf("preset = %q, want %q", m.preset, filter.PresetHuman)
+	if m.preset != filter.PresetAll {
+		t.Errorf("h must not change the preset; got %q", m.preset)
+	}
+	if !m.showClosed {
+		t.Error("h should turn show-closed on")
 	}
 	if cmd == nil {
-		t.Error("expected a fetch command after pressing h")
+		t.Error("expected a refetch after toggling closed")
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if model.(Model).showClosed {
+		t.Error("h again should hide closed issues")
 	}
 }
 
@@ -78,8 +87,8 @@ func TestJumpToHuman_NoneVisibleSetsBanner(t *testing.T) {
 
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
 	m = model.(Model)
-	if !strings.Contains(m.status, "no human") {
-		t.Errorf("expected 'no human' status banner; got %q", m.status)
+	if !strings.Contains(m.status, "nothing waiting on you") {
+		t.Errorf("expected 'nothing waiting on you' status banner; got %q", m.status)
 	}
 }
 
@@ -141,7 +150,7 @@ func TestHelpOverlay_IncludesStatusLegend(t *testing.T) {
 	for _, want := range []string{
 		"Status column",
 		"open",
-		"wip",
+		"in_progress",
 		"blocked",
 		"deferred",
 		"closed",

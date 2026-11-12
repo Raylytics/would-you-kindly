@@ -67,32 +67,32 @@ func TestSplit_ToggleKeyCyclesAndExplains(t *testing.T) {
 	if !m.splitActive() {
 		t.Fatal("precondition: split should be active at 160x40")
 	}
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
 	m = model.(Model)
 	if m.splitActive() || m.layoutPref != layoutStacked {
-		t.Fatalf("p should hide the pane; active=%v pref=%v", m.splitActive(), m.layoutPref)
+		t.Fatalf("L should hide the pane; active=%v pref=%v", m.splitActive(), m.layoutPref)
 	}
 	if !strings.Contains(m.status, "hidden") {
 		t.Errorf("status should say the pane is hidden; got %q", m.status)
 	}
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
 	m = model.(Model)
 	if !m.splitActive() || m.layoutPref != layoutAuto {
-		t.Fatalf("p again should restore auto; active=%v pref=%v", m.splitActive(), m.layoutPref)
+		t.Fatalf("L again should restore auto; active=%v pref=%v", m.splitActive(), m.layoutPref)
 	}
 
-	// Below the auto breakpoint but above the forced floor: p forces
+	// Below the auto breakpoint but above the forced floor: L forces
 	// the split on.
 	m, _ = splitFixture(t, 120, 30)
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
 	m = model.(Model)
 	if !m.splitActive() || m.layoutPref != layoutSplit {
-		t.Fatalf("p at 120x30 should force split; active=%v pref=%v", m.splitActive(), m.layoutPref)
+		t.Fatalf("L at 120x30 should force split; active=%v pref=%v", m.splitActive(), m.layoutPref)
 	}
 
 	// Below even the forced floor: pref stays put and the status says why.
 	m, _ = splitFixture(t, 80, 24)
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
 	m = model.(Model)
 	if m.splitActive() {
 		t.Fatal("80x24 must not split")
