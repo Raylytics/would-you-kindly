@@ -1698,12 +1698,15 @@ func TestMarkBlockedByHuman_OnlyAnOpenHumanTaskOnABlocksEdge(t *testing.T) {
 
 func TestIsHumanRow_IncludesMyClaims(t *testing.T) {
 	const me = "jimbottle"
-	mine := beads.Issue{Status: "in_progress", Assignee: me}
+	mine := beads.Issue{Status: "in_progress", Assignee: me, Metadata: stampedClaim(me)}
 	if !isHumanRow(mine, me) {
 		t.Error("a task I claimed is badged HUMAN, so it belongs in the human view")
 	}
 	if isHumanRow(beads.Issue{Status: "in_progress", Assignee: "claude-a"}, me) {
 		t.Error("an agent's claim is not a human row")
+	}
+	if isHumanRow(beads.Issue{Status: "in_progress", Assignee: me}, me) {
+		t.Error("a bare bd claim under my name is not provably mine, so not a human row")
 	}
 	if isHumanRow(beads.Issue{Status: "open", BlockedByHuman: true}, me) {
 		t.Error("HUMAN-BLOCK is in mine, not in human")

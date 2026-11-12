@@ -1208,16 +1208,19 @@ func responsibilityBadgeFor(i beads.Issue, me string) string {
 }
 
 // claimedByMe reports whether the person at the TUI has this issue
-// claimed: in progress under their name. Read through lease.Of so a
-// wyk-stamped claim and a bare bd one agree on the holder; whether the
-// claim has outlived its TTL is deliberately ignored here — expiry is
-// not a thing the screen shows.
+// claimed: in progress, with a wyk lease stamp naming them (`x` here,
+// or `wyk claim`). A bare bd claim does NOT count, even under the same
+// name: `me` falls back to git user.name, which is also what bd records
+// when an agent runs a raw `bd update --claim`, so the name alone
+// cannot tell the person's work from an agent's (roborev #7268).
+// Whether the claim has outlived its TTL is deliberately ignored —
+// expiry is not a thing the screen shows.
 func claimedByMe(i beads.Issue, me string) bool {
 	if me == "" {
 		return false
 	}
 	l := lease.Of(i, leaseNow(), lease.TTL)
-	return l.State != lease.None && l.Owner == me
+	return l.State != lease.None && !l.Implicit && l.Owner == me
 }
 
 // isHumanRow is the `human` preset's rule: the Turn badge is HUMAN —

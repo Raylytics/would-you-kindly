@@ -43,7 +43,8 @@ it closes the issue (§4).
 
 A `PreToolUse` hook in [`.claude/settings.json`](../.claude/settings.json)
 (`wyk hook bd-create-guard`) redirects a bare `bd create` to `wyk create`
-so the stamps can't be skipped by forgetting.
+so the stamps can't be skipped by forgetting, and a bare
+`bd update <id> --claim` to `wyk claim` so the claim is the agent's.
 
 ## 2. Handing the human-only step back
 

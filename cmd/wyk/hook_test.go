@@ -122,6 +122,11 @@ func TestBDClaimGuard(t *testing.T) {
 		{"quoted mention allowed", "git commit -m 'stop using bd update x --claim'", 0},
 		{"a longer flag is not --claim", "bd update my-1 --claimed-by=x", 0},
 		{"inline bypass allowed", "WYK_ALLOW_BD_CLAIM=1 bd update my-1 --claim", 0},
+		{"--claim=true blocks", "bd update my-1 --claim=true", 2},
+		{"global flag before update blocks", "bd --json update my-1 --claim", 2},
+		{"global flag with a value blocks", "bd -C ../x update my-1 --claim", 2},
+		{"explicit --actor= allowed", "bd --actor=reviewer update my-1 --claim", 0},
+		{"--actor on another command does not exempt", "bd --actor x list; bd update my-1 --claim", 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -136,6 +141,16 @@ func TestBDClaimGuard(t *testing.T) {
 				t.Errorf("%q: exit %d, want %d", c.cmd, got, c.want)
 			}
 		})
+	}
+}
+
+func TestBDClaimGuard_CreateBypassDoesNotDisableIt(t *testing.T) {
+	// Each guard has its own switch: allowing raw `bd create` must not
+	// quietly allow raw claims too (roborev #7270).
+	t.Setenv("WYK_ALLOW_BD_CREATE", "1")
+	payload := `{"tool_name":"Bash","tool_input":{"command":"bd update my-1 --claim"}}`
+	if got := runHookBDCreateGuard(strings.NewReader(payload)); got != 2 {
+		t.Errorf("WYK_ALLOW_BD_CREATE must not bypass the claim guard; got exit %d", got)
 	}
 }
 

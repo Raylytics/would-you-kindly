@@ -164,7 +164,7 @@ func runInit(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "print what would happen without writing the hook")
 	skipBD := fs.Bool("skip-bd-init", false, "do not run 'bd init' even if .beads is missing")
 	skipRegister := fs.Bool("skip-register", false, "do not add this repo to ~/.config/wyk/repos.json")
-	skipClaudeMD := fs.Bool("skip-claude-md", false, "do not seed the agent enrichment: wyk's conventions block in CLAUDE.md AND the bd-create-guard PreToolUse hook in .claude/settings.json (which redirects 'bd create' to 'wyk create')")
+	skipClaudeMD := fs.Bool("skip-claude-md", false, "do not seed the agent enrichment: wyk's conventions block in CLAUDE.md AND the bd-create-guard PreToolUse hook in .claude/settings.json (which redirects 'bd create' to 'wyk create' and 'bd update --claim' to 'wyk claim')")
 	skipHook := fs.Bool("skip-hook", false, "do not touch git hooks at all — register and enrich only. Use when another tool owns post-commit and you don't want wyk's auto-close (commits with 'Closes: <id>' then won't close anything)")
 	scanRoot := fs.String("scan", "", "scan this directory tree for existing bd workspaces and register every one found (skips repos already registered, hidden dirs, node_modules, vendor); mutually exclusive with the per-repo init path")
 	uninstall := fs.Bool("uninstall", false, "remove wyk's post-commit hook (restoring post-commit.pre-wyk if present); refuses on foreign hooks")
@@ -982,7 +982,7 @@ re-run as ` + "`wyk create`" + `.
 
 **Turn column** — whose move it is, label-driven (NOT bd's owner/assignee):
 - ` + "`human`" + ` → **HUMAN** (a human must act).
-- ` + "`agent-handoff`" + ` → **AGENT-HANDOFF**: another agent owns it; don't touch,
+- ` + "`agent-handoff`" + ` → **OTHER-AGENT**: another agent owns it; don't touch,
   a human coordinates. Excluded from ` + "`wyk inbox`" + `.
 - agent task blocked by a ` + "`human`" + `-flagged dep → **WAITING-ON-HUMAN** (skip it).
 - else → **AGENT** (the default; a null owner is never blank — so a task
@@ -999,8 +999,8 @@ runbook with neither. ` + "`wyk handoff -template [-question]`" + ` prints the s
 **Pick up work**: ` + "`wyk next -claim`" + ` — your held work, then the agent inbox (items
 bounced back to you — WORK them), then ready work — and checks the top pick
 out as an expiring lease so other agents in this repo leave it alone. Work on
-your own branch. A ` + "`@<owner>`" + ` row is another agent's: don't touch it;
-` + "`EXPIRED`" + ` is claimable. ` + "`wyk conventions`" + ` prints the full contract.
+your own branch. If ` + "`wyk claim`" + ` exits 3 another agent holds it: don't touch
+it; a lapsed lease is claimable. ` + "`wyk conventions`" + ` prints the full contract.
 
 **Something wrong? Act — don't shrug.** If a wyk/bd command errors, a
 convention looks broken, or the workflow rubs wrong, file a bd issue (with

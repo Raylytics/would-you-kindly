@@ -143,7 +143,7 @@ func TestWithCacheSnapshot_MinePresetAndClosedRows(t *testing.T) {
 		Preset:  string(filter.PresetAll),
 		SavedAt: time.Now(),
 		Issues: []beads.Issue{
-			{ID: "m-1", Assignee: "ev", Status: "in_progress"},
+			{ID: "m-1", Assignee: "ev", Status: "in_progress", Metadata: stampedClaim("ev")},
 			{ID: "m-2", Status: "closed", Labels: []string{"human"}}, // closed: must not seed
 			{ID: "o-1", Assignee: "someone-else", Status: "in_progress"},
 			{ID: "o-2", Status: "open", Labels: []string{"human"}},
@@ -442,7 +442,7 @@ func TestSwitchPreset_DerivesFromDiskSidecar(t *testing.T) {
 	// A live all fetch replaces the sidecar; derives now carry no age.
 	model, _ = m.switchPreset(filter.PresetAll)
 	m = model.(Model)
-	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: []beads.Issue{{ID: "m-1", Status: "in_progress", Assignee: "me", Labels: []string{}}}})
+	model, _ = m.Update(fetchedMsg{preset: filter.PresetAll, issues: []beads.Issue{{ID: "m-1", Status: "in_progress", Assignee: "me", Metadata: stampedClaim("me"), Labels: []string{}}}})
 	m = model.(Model)
 	m.me = "me"
 	model, _ = m.switchPreset(filter.PresetMine)
@@ -465,7 +465,7 @@ func TestWithCacheSnapshot_SubsetSnapshotDerivesFromSidecar(t *testing.T) {
 		Issues:  []beads.Issue{{ID: "h-1", Status: "open", Labels: []string{"human"}}},
 		All: &AllSnapshot{SavedAt: time.Now(), Issues: []beads.Issue{
 			{ID: "h-1", Status: "open", Labels: []string{"human"}},
-			{ID: "m-1", Status: "in_progress", Assignee: "me", Labels: []string{}},
+			{ID: "m-1", Status: "in_progress", Assignee: "me", Metadata: stampedClaim("me"), Labels: []string{}},
 			{ID: "a-1", Status: "open", Assignee: "me", Labels: []string{"src:agent"}},
 		}},
 	}
