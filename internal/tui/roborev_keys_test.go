@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jimbottle/would-you-kindly/internal/beads"
 )
 
 // These tests pin the keys wyk shares with roborev's TUI (see the
@@ -310,5 +312,53 @@ func TestFilterPrompt_FooterShowsWhatWorks(t *testing.T) {
 	}
 	if strings.Contains(joined, "j/k") {
 		t.Errorf("prompt footer must not advertise j/k, which type here; got %s", joined)
+	}
+}
+
+func TestFilterPrompt_ClickOpensTheRowThatWasClicked(t *testing.T) {
+	// While typing, the list is filtered by the raw input; closing the
+	// prompt trims it, which can widen and reorder the list. The row
+	// that opens must be the one under the pointer, not whatever sits
+	// at that position afterwards (roborev #7288).
+	src := &stubSource{issues: []beads.Issue{
+		{ID: "a-1", Title: "abcd", Status: "open"},
+		{ID: "a-2", Title: "ab cd", Status: "open"},
+	}}
+	m := New(src)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = applyFetched(model.(Model), src)
+	model, _ = m.Update(runeKey('f'))
+	m = model.(Model)
+	for _, r := range "ab " {
+		model, _ = m.Update(runeKey(r))
+		m = model.(Model)
+	}
+	if len(m.visible) != 1 || m.visible[0].ID != "a-2" {
+		t.Fatalf("precondition: %q should show only a-2; got %v", m.input.Value(), idsOf(m.visible))
+	}
+	// The cursor is already on the only row, so this click opens it.
+	model, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY()})
+	m = model.(Model)
+	if m.mode != modeDetail || m.detailIssue.ID != "a-2" {
+		t.Errorf("the click should open a-2, the row under the pointer; mode=%v issue=%q visible=%v", m.mode, m.detailIssue.ID, idsOf(m.visible))
+	}
+}
+
+func TestFilterPrompt_UndoKeyClosesPromptAndRuns(t *testing.T) {
+	// ctrl+z is the other non-text list key: like tab, it closes the
+	// prompt (query kept) and runs, rather than vanishing into the
+	// text input (roborev #7287).
+	s := &stubMutator{stubSource: stubSource{issues: sampleIssues()}}
+	m := applyMutatorFetched(New(s), s)
+	m.lastClosed = m.visible[0]
+	model, _ := m.Update(runeKey('f'))
+	model, _ = model.(Model).Update(runeKey('r'))
+	model, cmd := model.(Model).Update(tea.KeyMsg{Type: tea.KeyCtrlZ})
+	m = model.(Model)
+	if m.mode != modeList || m.query != "r" {
+		t.Errorf("ctrl+z should close the prompt and keep the query; mode=%v query=%q", m.mode, m.query)
+	}
+	if cmd == nil {
+		t.Error("ctrl+z should dispatch the undo")
 	}
 }

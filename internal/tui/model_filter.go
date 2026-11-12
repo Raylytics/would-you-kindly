@@ -330,10 +330,12 @@ func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = max(0, m.cursor-max(1, m.bodyHeight()))
 		m.ensureCursorVisible()
 		return m, nil
-	case tea.KeyTab:
+	case tea.KeyTab, tea.KeyCtrlZ:
 		// An action that cannot happen WITH the prompt up — moving to
-		// the next view — closes it (the query stays applied) and then
-		// runs, instead of being swallowed by the text input.
+		// the next view, undoing the last close — closes it (the query
+		// stays applied) and then runs, instead of being swallowed by
+		// the text input. These two are the list's only other
+		// non-text keys.
 		closed, closeCmd := m.closeFilterPrompt()
 		next, actCmd := closed.updateList(msg)
 		return next, tea.Batch(closeCmd, actCmd)
