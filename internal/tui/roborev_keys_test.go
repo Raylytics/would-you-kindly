@@ -183,3 +183,67 @@ func TestRoborevKeys_FooterAdvertisesSharedKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterPrompt_OtherKeysStillWork(t *testing.T) {
+	open := func(t *testing.T, w, h int) Model {
+		t.Helper()
+		m, _ := splitFixture(t, w, h)
+		model, _ := m.Update(runeKey('f'))
+		m = model.(Model)
+		if m.mode != modeFilter {
+			t.Fatalf("precondition: f should open the prompt; mode=%v", m.mode)
+		}
+		return m
+	}
+	press := func(m Model, k tea.KeyMsg) Model {
+		model, _ := m.Update(k)
+		return model.(Model)
+	}
+
+	// Navigation works with the prompt still open.
+	m := open(t, 100, 20)
+	page := m.bodyHeight()
+	m = press(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.mode != modeFilter || m.cursor != page {
+		t.Errorf("pgdn should page with the prompt open; mode=%v cursor=%d want %d", m.mode, m.cursor, page)
+	}
+	m = press(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = press(m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.mode != modeFilter || m.cursor != 1 {
+		t.Errorf("down then pgup should land on row 1 with the prompt open; mode=%v cursor=%d", m.mode, m.cursor)
+	}
+
+	// Letters are text, including ones that are list keys.
+	m = open(t, 100, 20)
+	for _, r := range "a" {
+		m = press(m, runeKey(r))
+	}
+	if m.mode != modeFilter || m.input.Value() != "a" {
+		t.Errorf("a letter should type into the query, not act; mode=%v value=%q", m.mode, m.input.Value())
+	}
+
+	// tab cannot coexist with the prompt: it closes it, keeps the query,
+	// and moves to the next view.
+	m = open(t, 100, 20)
+	m = press(m, runeKey('t'))
+	before := m.preset
+	m = press(m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.mode != modeList || m.query != "t" {
+		t.Errorf("tab should close the prompt and keep the query; mode=%v query=%q", m.mode, m.query)
+	}
+	if m.preset == before {
+		t.Error("tab should also move to the next view")
+	}
+
+	// enter and esc only close it: the selection made while typing is
+	// kept, and nothing is opened.
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeyEsc}} {
+		m = open(t, 100, 20)
+		m = press(m, runeKey('t'))
+		m = press(m, tea.KeyMsg{Type: tea.KeyDown})
+		m = press(m, k)
+		if m.mode != modeList || m.query != "t" || m.cursor != 1 {
+			t.Errorf("%v should close the prompt, keeping query and selection; mode=%v query=%q cursor=%d", k.Type, m.mode, m.query, m.cursor)
+		}
+	}
+}

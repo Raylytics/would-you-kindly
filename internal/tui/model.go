@@ -650,7 +650,7 @@ type Model struct {
 func New(src Source) Model {
 	ti := textinput.New()
 	ti.Prompt = "/ "
-	ti.Placeholder = "fuzzy filter… (↑↓ select)"
+	ti.Placeholder = "fuzzy filter… (↑↓ pgup/pgdn move · tab next view · ⏎ done)"
 	ti.CharLimit = 200
 
 	na := textarea.New()
