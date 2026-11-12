@@ -244,9 +244,13 @@ If the GitHub release exists but `brew upgrade --cask wyk` still offers
 the previous version, the cask push failed after the release was
 published (before the pre-flight step existed, a bad tap token did
 exactly this to v0.8.2). The GitHub release is correct; only the tap is
-behind. Fix the secret for next time (a fine-grained PAT with
-**Contents: read and write** on `raylytics/homebrew-wyk`, stored in
-1Password as `wyk-homebrew-tap-raylytics`, then
+behind. Fix the secret for next time (a fine-grained PAT whose
+**Resource owner is the Raylytics organization**, with **Repository
+access** to `homebrew-wyk` and **Contents: read and write**; a token
+owned by a personal account, or one that lists a different repo, reads
+the tap but cannot push, which is what stopped the first v0.9.0 run.
+Store it in 1Password as `wyk-homebrew-tap-raylytics`, test its push
+with the probe in CLAUDE.md, Secrets, then
 `op read "op://Personal/wyk-homebrew-tap-raylytics/credential" --account my.1password.com | gh secret set HOMEBREW_TAP_GITHUB_TOKEN --repo Raylytics/would-you-kindly`;
 the item layout is in CLAUDE.md, Secrets),
 and either re-run the failed release job (`gh run rerun <run-id> --failed`)
