@@ -93,6 +93,16 @@ func runHook(args []string) int {
 // not a quoted arg to `create`) are not.
 var bdCreateRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+create(?:\\s|$|[;&|)`<>])")
 
+// bdClaimRE matches `bd update … --claim` at a command position, with
+// the same anchoring as bdCreateRE; `[^\n;&|)`]*` keeps the flag inside
+// the one bd invocation. Global flags before the subcommand
+// (`bd --actor x update … --claim`) are deliberately NOT matched: naming
+// an actor is the caller saying who the claim is for.
+var bdClaimRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+update\\s[^\\n;&|)`]*--claim(?:\\s|$|[;&|)`<>])")
+
+// allowBDClaimInlineRE is allowBDCreateInlineRE for the claim redirect.
+var allowBDClaimInlineRE = regexp.MustCompile(`(?:^|[\s;&|(])(?:export\s+)?WYK_ALLOW_BD_CLAIM=\S`)
+
 // redactQuotes replaces every single- or double-quoted span in a shell
 // command (the surrounding quote characters included) with a single NUL
 // sentinel, so bdCreateRE never reads quoted TEXT as a command-position
@@ -327,6 +337,22 @@ func runHookBDCreateGuard(stdin io.Reader) int {
 		return 0
 	}
 	redacted := redactQuotes(in.ToolInput.Command)
+	// A raw `bd update --claim` records the claim under bd's actor, which
+	// in an agent's shell is the HUMAN's git user.name — the TUI then
+	// reads it as the person's own claim and shows the agent's work as
+	// HUMAN, in their views (would-you-kindly-5vzu). `wyk claim` claims as the agent. Same
+	// guard, same installed hook: no re-init needed to pick this up.
+	if bdClaimRE.MatchString(redacted) && os.Getenv("WYK_ALLOW_BD_CLAIM") == "" && !allowBDClaimInlineRE.MatchString(redacted) {
+		fmt.Fprintln(os.Stderr,
+			"Use `wyk claim <id>` instead of `bd update <id> --claim`. Raw bd records "+
+				"the claim under the human's name (git user.name), so the issue shows up as "+
+				"theirs (HUMAN) in the TUI; `wyk claim` claims it as this agent session, as an expiring "+
+				"lease. Run `wyk claim <id>` first, then any other `bd update` flags as a "+
+				"separate command. Give it back with `wyk claim -release <id>`, not "+
+				"`bd update --status=open` (which leaves the assignee behind). "+
+				"(If you genuinely need raw bd, prefix the command with WYK_ALLOW_BD_CLAIM=1.)")
+		return 2
+	}
 	if !bdCreateRE.MatchString(redacted) || allowBDCreateInlineRE.MatchString(redacted) {
 		return 0
 	}
