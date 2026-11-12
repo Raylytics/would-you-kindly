@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Entries are generated from Conventional Commits by [git-cliff](https://git-cliff.org).
 
+## [0.9.0] - 2026-11-12
+
+### Added
+
+- **tui:** [**breaking**] Plain-language Turn column, views, and roborev keys (#58) ([0c50a58](https://github.com/jimbottle/would-you-kindly/commit/0c50a58bc70e7471af6ccd7eca3e2d57625bce1c))
+- **tui:** Keep paging and tab working from the filter prompt (#60) ([486e44a](https://github.com/jimbottle/would-you-kindly/commit/486e44a2187f8267a8fb25f7e71fc633cb487bd9))
+
+### Fixed
+
+- **hooks:** Redirect raw bd update --claim to wyk claim (#57) ([8210e4c](https://github.com/jimbottle/would-you-kindly/commit/8210e4cb225eb8741df5a0b76dc422c2cac49ffc))
+- **tui:** Only wyk-stamped claims are the person's; tighten guard (#59) ([736a2f4](https://github.com/jimbottle/would-you-kindly/commit/736a2f4919df4bbb2d158269b0a9712b13ddb847))
+- **release:** PR-based release script, tap pre-flight, cask steps (#55) ([a6a9a12](https://github.com/jimbottle/would-you-kindly/commit/a6a9a12b5ba636c01a0885e6672689750b91c5d6))
+
 ## [0.8.2] - 2026-11-04
 
 ### Fixed
@@ -1940,7 +1953,8 @@ through multiple roborev rounds.
   real bd issues.
 - Any background daemon.
 
-[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.8.1
 [0.8.0]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.8.0
