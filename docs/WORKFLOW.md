@@ -61,7 +61,7 @@ handed would-you-kindly-2oa to human (327-byte runbook)
 `would-you-kindly-2oa` is a real closed issue in this tracker. Its
 description is a five-step runbook (open the 1Password entry, generate,
 `heroku config:set …`, update the entry, close the issue); its labels are
-`human, src:agent`. The **Owner** column in the TUI renders it `HUMAN`,
+`human, src:agent`. The **Turn** column in the TUI renders it `HUMAN`,
 and `wyk -preset human` (or `tab` in the TUI) shows nothing but rows like
 it.
 

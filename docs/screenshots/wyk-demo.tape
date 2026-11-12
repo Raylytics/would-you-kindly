@@ -41,7 +41,7 @@ Sleep 800ms
 Show
 
 # --- 1) Agent side: file a runbook and hand it to a human ---
-Type "echo 'Reset the vault password; roll the staging k8s secret.' | wyk handoff -create 'Rotate the staging DB password' -priority 1"
+Type `printf '## Steps\n1. Reset the vault password.\n2. Roll the staging k8s secret.\n' | wyk handoff -create 'Rotate the staging DB password' -priority 1`
 Sleep 800ms
 Enter
 # bd's embedded Dolt cold-starts on the first write; wait it out so the
@@ -60,9 +60,12 @@ Enter
 # still doesn't capture the loading spinner.
 Sleep 9s
 Screenshot docs/screenshots/wyk-tui.png
+Sleep 1s
 
-# h → the human view: "whose move is it?"
-Type "h"
+# tab, tab → the human view: "whose move is it?"
+Tab
+Sleep 1.5s
+Tab
 Sleep 3s
 
 # enter → read the runbook the agent left

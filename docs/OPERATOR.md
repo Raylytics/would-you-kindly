@@ -702,9 +702,9 @@ can leak into the capture.
 
 ![wyk split layout](screenshots/wyk-tui.png)
 
-The default `all` preset in the split layout. The **Owner** column
+The default `all` preset in the split layout. The **Turn** column
 carries the "whose move is it" badge — `HUMAN` for handed-off work,
-`AGENT` for issues the agent filed, `HUMAN-BLOCK` for agent issues
+`AGENT` for issues the agent filed, `WAITING-ON-HUMAN` for agent issues
 blocked on a human — and the right pane is the selected issue's
 runbook, following the cursor.
 
