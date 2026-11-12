@@ -198,12 +198,13 @@ with a note explaining what's still needed; don't sit silently).
 An audit on 2026-11-12 found 19 API Credential items in five shapes: secrets in plain-text fields, in a dropdown field, under ad-hoc names, and across four vaults. One shape from here on:
 
 - **Category: API Credential.** Not Login, not Secure Note.
-- **One secret → the built-in `credential` field.** It is the concealed field the template already has, so the app shows the item as holding a secret. Reference: `op://<vault>/<item>/credential`. Map it to the env var name in `op.env`, not in the item (`HOMEBREW_TAP_GITHUB_TOKEN=op://Personal/wyk-homebrew-tap/credential`).
+- **One secret → the built-in `credential` field.** It is the concealed field the template already has, so the app shows the item as holding a secret. Reference: `op://<vault>/<item>/credential`. Map it to the env var name in `op.env`, not in the item (`HOMEBREW_TAP_GITHUB_TOKEN=op://Personal/wyk-homebrew-tap-raylytics/credential`).
 - **Several values for one service → one field per value, labelled exactly as the env var** (`PAYCOR_CLIENT_ID`, `PAYCOR_CLIENT_SECRET`), and leave `credential` empty. Reference: `op://<vault>/<item>/<ENV_VAR>`.
-- **Every secret is in a concealed (password-type) field.** Never a text field, a dropdown, `username`, or the notes: those show the value in plain text, and a dropdown-type field does not show as a secret at all (the first `wyk-homebrew-tap` held its token that way and looked empty). Non-secret values (a base URL, a key id, an account name) are plain text fields.
+- **Every secret is in a concealed (password-type) field.** Never a text field, a dropdown, `username`, or the notes: those show the value in plain text, and a dropdown-type field does not show as a secret at all (the first `wyk-homebrew-tap-raylytics` held its token that way and looked empty). Non-secret values (a base URL, a key id, an account name) are plain text fields.
 - **A token is one value.** A GitHub personal access token, for instance, has no separate "secret": the token goes in `credential` and nothing else is needed.
 - **Record what it is.** `username` = the account that owns the credential; the expiry date in the item and in the table below; in the notes, what it grants and the page it was issued from.
 - **Check the shape without reading the value:** `op item get <item> --account my.1password.com --format json | python3 -c 'import json,sys; [print(f.get("label"), f.get("type"), "set" if f.get("value") else "empty") for f in json.load(sys.stdin)["fields"]]'` — the secret's row must say `CONCEALED set`.
+- **Test a GitHub token's push access with git's rewrites off.** A workstation that rewrites `https://github.com/` to SSH (`url.insteadOf`) answers a push probe with the SSH key, not the token, and reports success for a token that cannot push: `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c credential.helper='!f() { echo username=x-access-token; echo "password=$TOKEN"; }; f' push --dry-run https://github.com/<owner>/<repo>.git HEAD:refs/heads/probe`. A fine-grained token must be owned by the organization that owns the repo AND list that repo under Repository access; "Contents: read and write" on a different repo is not enough.
 - **Seed a derived copy by piping, never by pasting:** `op read "op://<vault>/<item>/credential" --account my.1password.com | gh secret set <NAME> --repo <owner>/<repo>`. Then prove it works by calling the service.
 - **Replacing one:** create the new credential, put it in the same field of the same item (1Password keeps the old version), re-seed every derived copy listed in the table, verify, then revoke the old credential at the issuer.
 
@@ -211,7 +212,7 @@ An audit on 2026-11-12 found 19 API Credential items in five shapes: secrets in 
 
 | Env var | Used by / purpose | Where it lives today | 1Password item |
 |---|---|---|---|
-| `HOMEBREW_TAP_GITHUB_TOKEN` | `.github/workflows/release.yml`: goreleaser pushes the updated cask to the Homebrew tap on a tag; the first step of that workflow proves the token can read and push | GitHub Actions secret on this repo (CI only; no local copy), seeded from the item | `op://Personal/wyk-homebrew-tap/credential`: a fine-grained PAT with Contents read and write on `raylytics/homebrew-wyk`. Expires 2027-11-12 |
+| `HOMEBREW_TAP_GITHUB_TOKEN` | `.github/workflows/release.yml`: goreleaser pushes the updated cask to the Homebrew tap on a tag; the first step of that workflow proves the token can read and push | GitHub Actions secret on this repo (CI only; no local copy), seeded from the item | `op://Personal/wyk-homebrew-tap-raylytics/credential`: a fine-grained PAT owned by the Raylytics organization, with repository access to `homebrew-wyk` only and Contents read and write. Expires 2027-11-13 |
 
 Not secrets: `GITHUB_TOKEN` in that workflow is the ephemeral `github.token`; the `WYK_*`, `XDG_*`, `BEADS_ACTOR`, and `EDITOR` env vars are plain config.
 
