@@ -42,6 +42,10 @@ var ErrUnsupportedVersion = errors.New("uiconfig: unsupported file version")
 type Config struct {
 	Version       int      `json:"version"`
 	HiddenColumns []string `json:"hidden_columns,omitempty"`
+	// ShownColumns lists the DefaultHidden columns the user switched
+	// ON. Needed because absence means "the default", and for those
+	// columns the default is hidden.
+	ShownColumns []string `json:"shown_columns,omitempty"`
 	// PriorityEmphasis opts into colour-coding the P column in the
 	// list (P0 loud, P3–P4 dim). Off by default to preserve the flat
 	// uniform-white table; toggled with `p` in the column overlay.
@@ -131,11 +135,23 @@ func Save(path string, c Config) error {
 	return nil
 }
 
+// DefaultHidden is the columns that start hidden: ones that mean
+// nothing at a glance. Session is an 8-character code identifying the
+// agent conversation that filed the issue — useful when tracing, noise
+// otherwise. The `o` overlay turns it on (recorded in ShownColumns).
+var DefaultHidden = []string{"session"}
+
 // HiddenSet turns the persisted slice into a lookup map for the
 // per-paint visibility check. Keeps callers from re-allocating a
 // map on every render.
 func (c Config) HiddenSet() map[string]bool {
-	out := make(map[string]bool, len(c.HiddenColumns))
+	out := make(map[string]bool, len(c.HiddenColumns)+len(DefaultHidden))
+	for _, id := range DefaultHidden {
+		out[id] = true
+	}
+	for _, id := range c.ShownColumns {
+		delete(out, id)
+	}
 	for _, id := range c.HiddenColumns {
 		out[id] = true
 	}

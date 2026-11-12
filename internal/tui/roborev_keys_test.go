@@ -1,0 +1,185 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// These tests pin the keys wyk shares with roborev's TUI (see the
+// keyMap doc comment). A rebind that breaks one of them breaks the
+// "same key, same job" promise between the two tools.
+
+func runeKey(r rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+}
+
+func TestRoborevKeys_CommentKeyOpensNote(t *testing.T) {
+	// `c` is roborev's comment key; `n` is the older wyk alias.
+	for _, r := range []rune{'c', 'n'} {
+		s := &stubMutator{stubSource: stubSource{issues: sampleIssues()}}
+		m := applyMutatorFetched(New(s), s)
+		model, _ := m.Update(runeKey(r))
+		if got := model.(Model).mode; got != modeNote {
+			t.Errorf("%q in the list should enter modeNote; got %v", r, got)
+		}
+
+		s = &stubMutator{stubSource: stubSource{issues: sampleIssues()}}
+		m = enterDetailWithMutator(t, s)
+		model, _ = m.Update(runeKey(r))
+		d := model.(Model)
+		if d.mode != modeNote || d.promptReturn != modeDetail {
+			t.Errorf("%q in detail should enter modeNote returning to detail; got mode=%v ret=%v", r, d.mode, d.promptReturn)
+		}
+	}
+}
+
+func TestRoborevKeys_CInDetailNoLongerCopies(t *testing.T) {
+	s := &stubMutator{stubSource: stubSource{issues: sampleIssues()}}
+	m := enterDetailWithMutator(t, s)
+	copied := false
+	orig := clipboardCopy
+	clipboardCopy = func(string) error { copied = true; return nil }
+	t.Cleanup(func() { clipboardCopy = orig })
+
+	m.Update(runeKey('c'))
+	if copied {
+		t.Error("c in detail must not copy any more — y is the copy key")
+	}
+}
+
+func TestRoborevKeys_FilterKey(t *testing.T) {
+	for _, r := range []rune{'f', '/'} {
+		src := &stubSource{issues: sampleIssues()}
+		m := applyFetched(New(src), src)
+		model, _ := m.Update(runeKey(r))
+		if got := model.(Model).mode; got != modeFilter {
+			t.Errorf("%q should open the filter prompt; got %v", r, got)
+		}
+	}
+
+	// Inside the prompt `f` is text, even as the first character: only
+	// `/` closes an empty prompt.
+	src := &stubSource{issues: sampleIssues()}
+	m := applyFetched(New(src), src)
+	model, _ := m.Update(runeKey('f'))
+	model, _ = model.(Model).Update(runeKey('f'))
+	m = model.(Model)
+	if m.mode != modeFilter || m.input.Value() != "f" {
+		t.Fatalf("f inside the prompt should type; got mode=%v value=%q", m.mode, m.input.Value())
+	}
+}
+
+func TestRoborevKeys_ListPagingAndAliases(t *testing.T) {
+	m, _ := splitFixture(t, 100, 20) // 30 rows, more than one screen
+	page := m.bodyHeight()
+	if page < 2 || page >= len(m.visible) {
+		t.Fatalf("precondition: want a multi-page list; body=%d rows=%d", page, len(m.visible))
+	}
+	press := func(k tea.KeyMsg) {
+		t.Helper()
+		model, _ := m.Update(k)
+		m = model.(Model)
+	}
+
+	press(tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.cursor != page {
+		t.Errorf("pgdn should move one page (%d); cursor=%d", page, m.cursor)
+	}
+	if m.cursor < m.scroll || m.cursor >= m.scroll+page {
+		t.Errorf("cursor %d should stay inside the window starting at %d", m.cursor, m.scroll)
+	}
+	press(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 0 {
+		t.Errorf("pgup should return to the top; cursor=%d", m.cursor)
+	}
+	press(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 0 {
+		t.Errorf("pgup at the top should clamp; cursor=%d", m.cursor)
+	}
+
+	press(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if m.cursor != 1 {
+		t.Errorf("ctrl+n should move down one; cursor=%d", m.cursor)
+	}
+	press(tea.KeyMsg{Type: tea.KeyCtrlP})
+	if m.cursor != 0 {
+		t.Errorf("ctrl+p should move up one; cursor=%d", m.cursor)
+	}
+	press(tea.KeyMsg{Type: tea.KeyEnd})
+	if m.cursor != len(m.visible)-1 {
+		t.Errorf("end should jump to the last row; cursor=%d", m.cursor)
+	}
+	press(tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.cursor != len(m.visible)-1 {
+		t.Errorf("pgdn at the bottom should clamp; cursor=%d", m.cursor)
+	}
+	press(tea.KeyMsg{Type: tea.KeyHome})
+	if m.cursor != 0 {
+		t.Errorf("home should jump to the first row; cursor=%d", m.cursor)
+	}
+}
+
+func TestRoborevKeys_LayoutToggle(t *testing.T) {
+	// `p` stays as an alias for the pre-roborev binding.
+	m, _ := splitFixture(t, 160, 40)
+	model, _ := m.Update(runeKey('p'))
+	if model.(Model).splitActive() {
+		t.Error("p should still hide the pane")
+	}
+
+	// From the focused pane: the footer advertises L there, so it has
+	// to work there. The issue stays open, full-screen.
+	m, _ = splitFixture(t, 160, 40)
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	if m.mode != modeDetail {
+		t.Fatalf("precondition: enter should focus the pane; mode=%v", m.mode)
+	}
+	open := m.detailIssue.ID
+	model, _ = m.Update(runeKey('L'))
+	m = model.(Model)
+	if m.splitActive() {
+		t.Fatal("L from the focused pane should hide the split")
+	}
+	if m.mode != modeDetail || m.detailIssue.ID != open {
+		t.Errorf("hiding the pane should keep %s open in detail; mode=%v issue=%s", open, m.mode, m.detailIssue.ID)
+	}
+	if m.detailVP.Width != m.width {
+		t.Errorf("detail viewport should be full width (%d) once stacked; got %d", m.width, m.detailVP.Width)
+	}
+	model, _ = m.Update(runeKey('L'))
+	if !model.(Model).splitActive() {
+		t.Error("L again should bring the split back")
+	}
+}
+
+func TestRoborevKeys_FooterAdvertisesSharedKeys(t *testing.T) {
+	k := defaultKeyMap()
+	for _, c := range []struct{ got, want string }{
+		{k.Close.Help().Key, "a"},
+		{k.AddNote.Help().Key, "c"},
+		{k.Filter.Help().Key, "f"},
+		{k.Yank.Help().Key, "y"},
+		{k.PaneCopy.Help().Key, "y"},
+		{k.Columns.Help().Key, "o"},
+		{k.Layout.Help().Key, "L"},
+		{k.Help.Help().Key, "?"},
+		{k.Quit.Help().Key, "q"},
+	} {
+		if c.got != c.want {
+			t.Errorf("footer key %q, want %q", c.got, c.want)
+		}
+	}
+	var pane []string
+	for _, b := range k.paneHelp(true) {
+		pane = append(pane, b.Help().Key+" "+b.Help().Desc)
+	}
+	joined := strings.Join(pane, " | ")
+	for _, s := range []string{"a close", "c comment", "y copy instructions", "L show/hide pane"} {
+		if !strings.Contains(joined, s) {
+			t.Errorf("pane footer missing %q; got %s", s, joined)
+		}
+	}
+}

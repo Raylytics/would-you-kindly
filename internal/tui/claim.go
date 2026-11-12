@@ -86,8 +86,8 @@ func runClaim(c Claimer, i beads.Issue) tea.Cmd {
 	}
 }
 
-// handleClaimResult reports the outcome and refetches so the Owner
-// column shows the new @owner badge. A refusal is sticky, like every
+// handleClaimResult reports the outcome and refetches so the Turn
+// column shows the row as the person's (HUMAN). A refusal is sticky, like every
 // write error: it names the holder or the fence and the user needs to
 // read it before the next key wipes it.
 func (m Model) handleClaimResult(msg claimMsg) (tea.Model, tea.Cmd) {
@@ -95,17 +95,15 @@ func (m Model) handleClaimResult(msg claimMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("claim " + msg.issue.ID + " failed: " + sanitizeInline(msg.err.Error()))
 		return m, nil
 	}
-	until := ""
-	if !msg.res.Until.IsZero() {
-		until = " until " + msg.res.Until.Local().Format("15:04")
-	}
+	// One word on screen — claim — and no time limit: the lease the
+	// claim rides on is plumbing the person doesn't run their day by.
 	switch msg.res.Action {
 	case "renewed":
-		m.setStatus(fmt.Sprintf("renewed %s for %s%s", msg.issue.ID, sanitizeInline(msg.res.Owner), until))
+		m.setStatus(fmt.Sprintf("%s is already claimed by you", msg.issue.ID))
 	case "took-over":
-		m.setStatus(fmt.Sprintf("took over %s from %s as %s%s", msg.issue.ID, sanitizeInline(msg.res.Previous), sanitizeInline(msg.res.Owner), until))
+		m.setStatus(fmt.Sprintf("claimed %s (was claimed by %s)", msg.issue.ID, sanitizeInline(msg.res.Previous)))
 	default:
-		m.setStatus(fmt.Sprintf("claimed %s as %s%s", msg.issue.ID, sanitizeInline(msg.res.Owner), until))
+		m.setStatus(fmt.Sprintf("claimed %s", msg.issue.ID))
 	}
 	return m, tea.Batch(m.fetchCmd(), flashClearCmd(m.statusGen))
 }

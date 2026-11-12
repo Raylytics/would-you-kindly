@@ -11,9 +11,11 @@ internal/tui/keymap.go (`DocsKeymap`).
 | `j/k` | nav |
 | `g` | top |
 | `G` | bottom |
+| `pgup` | page up |
+| `pgdn` | page down |
 | `⏎` | open |
 | `esc` | back |
-| `p` | ±pane |
+| `L` | show/hide pane |
 | `[` | prev human |
 | `]` | next human |
 
@@ -23,40 +25,38 @@ internal/tui/keymap.go (`DocsKeymap`).
 |-----|--------|
 | `j/k` | scroll |
 | `tab` | link |
-| `c` | copy runbook |
+| `y` | copy instructions |
 
 ## Filters & sort
 
 | Key | Action |
 |-----|--------|
-| `/` | filter |
-| `h` | toggle human |
-| `tab` | preset |
+| `f` | filter |
+| `tab` | next view |
 | `s` | sort |
 | `S` | reverse sort |
-| `C` | ±closed |
+| `h` | show/hide closed |
 | `o` | columns |
-| `1` | P0 only |
-| `2` | ≤P1 |
-| `3` | ≤P2 |
-| `4` | ≤P3 |
-| `0` | all P |
+| `1` | most urgent only (P0) |
+| `2` | P0–P1 |
+| `3` | P0–P2 |
+| `4` | P0–P3 |
+| `0` | any priority |
 
 ## Writes
 
 | Key | Action |
 |-----|--------|
 | `a` | close |
-| `H` | ±human |
-| `x` | claim (lease) |
-| `n` | note |
+| `H` | hand to me/send back |
+| `x` | claim |
+| `c` | comment |
 | `N` | new issue |
 | `d` | defer |
-| `O` | assignee |
-| `L` | label |
-| `e` | edit |
-| `+` | ↑prio |
-| `-` | ↓prio |
+| `l` | label |
+| `e` | edit instructions |
+| `+` | more urgent |
+| `-` | less urgent |
 | `T` | cycle type |
 | `v` | mark |
 | `u/^z` | undo close |
@@ -66,11 +66,11 @@ internal/tui/keymap.go (`DocsKeymap`).
 
 | Key | Action |
 |-----|--------|
-| `y` | yank ID |
-| `Y` | yank ID — title |
-| `*` | yank all visible IDs |
-| `M` | yank as markdown task |
-| `_` | yank all as markdown |
+| `y` | copy ID |
+| `Y` | copy ID — title |
+| `*` | copy all visible IDs |
+| `M` | copy as markdown task |
+| `_` | copy all as markdown |
 | `:` | command |
 
 ## Meta
@@ -81,4 +81,10 @@ internal/tui/keymap.go (`DocsKeymap`).
 | `m` | mouse capture |
 | `?` | help |
 | `q` | quit |
+
+## Multi-agent (rarely needed)
+
+| Key | Action |
+|-----|--------|
+| `O` | assignee |
 

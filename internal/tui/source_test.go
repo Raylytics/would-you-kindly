@@ -26,17 +26,17 @@ func TestBDSource_PickFetchCall(t *testing.T) {
 		{"ready ignores includeClosed", filter.PresetReady, "ev", true, fetchReady, ""},
 		{"all open uses list", filter.PresetAll, "ev", false, fetchList, ""},
 		{"all + closed uses listall", filter.PresetAll, "ev", true, fetchListAll, ""},
-		{"mine with me uses query", filter.PresetMine, "ev", false, fetchQuery, `assignee=ev AND status!=closed`},
-		{"mine with me + closed uses query", filter.PresetMine, "ev", true, fetchQuery, `assignee=ev`},
-		// Regression for the MED finding on job 1277: mine + empty
-		// me + includeClosed used to produce bd query "" → error.
-		// The empty-query branch now routes to listall so the user
-		// sees the closest expressible answer (every issue) rather
-		// than a bd-error banner.
-		{"mine no-me + closed routes to listall", filter.PresetMine, "", true, fetchListAll, ""},
-		{"mine no-me open uses query", filter.PresetMine, "", false, fetchQuery, `status!=closed`},
-		{"human open uses query", filter.PresetHuman, "", false, fetchQuery, `label=human AND status!=closed`},
-		{"human + closed uses query", filter.PresetHuman, "", true, fetchQuery, `label=human`},
+		// mine goes by Turn badge, which no bd query can express
+		// (HUMAN-BLOCK comes from dependency edges): always list, then
+		// filter. Never an empty query, whatever the identity.
+		{"mine lists and filters", filter.PresetMine, "ev", false, fetchMine, ""},
+		{"mine + closed lists and filters", filter.PresetMine, "ev", true, fetchMine, ""},
+		{"mine no-me lists and filters", filter.PresetMine, "", false, fetchMine, ""},
+		{"mine no-me + closed lists and filters", filter.PresetMine, "", true, fetchMine, ""},
+		// human goes by the HUMAN badge, which includes the person's own
+		// claims — not expressible as `label=human`.
+		{"human lists and filters", filter.PresetHuman, "", false, fetchHuman, ""},
+		{"human + closed lists and filters", filter.PresetHuman, "", true, fetchHuman, ""},
 		// blocked lists and filters (would-you-kindly-p00h.3); closed has
 		// no effect because a closed issue is never blocked.
 		{"blocked routes to list + filter", filter.PresetBlocked, "ev", false, fetchBlocked, ""},
@@ -1014,8 +1014,13 @@ func TestIsAgentInboxCandidate(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "no-src-agent-skipped",
+			name: "agent-task-without-src-agent-is-a-target",
 			i:    beads.Issue{Labels: []string{"src:human"}, DependencyCount: 2},
+			want: true,
+		},
+		{
+			name: "closed-skipped",
+			i:    beads.Issue{Labels: []string{"src:agent"}, Status: "closed", DependencyCount: 1},
 			want: false,
 		},
 		{
@@ -1197,12 +1202,12 @@ func TestMarkBlockedByHuman_DepErrorLosesOnlyTheBadge(t *testing.T) {
 }
 
 func TestMarkBlockedByHuman_SkipsNonCandidates(t *testing.T) {
-	// Rows that aren't agent-inbox candidates (no src:agent, OR
-	// human-flagged, OR no deps) must not trigger a ListDeps call.
-	// We assert via a stub that explodes if invoked.
+	// Rows that aren't candidates (human-flagged, closed, OR no deps)
+	// must not trigger a ListDeps call. We assert via a stub that
+	// explodes if invoked.
 	issues := []beads.Issue{
 		{ID: "human-row", Labels: []string{"src:agent", "human"}, DependencyCount: 1},
-		{ID: "no-src-row", Labels: []string{"src:human"}, DependencyCount: 1},
+		{ID: "closed-row", Labels: []string{"src:agent"}, Status: "closed", DependencyCount: 1},
 		{ID: "no-deps-row", Labels: []string{"src:agent"}, DependencyCount: 0},
 	}
 	stub := &explodingDepLister{t: t}
@@ -1664,5 +1669,46 @@ func TestFilterBlocked(t *testing.T) {
 	}
 	if want := "b c f i"; strings.Join(ids, " ") != want {
 		t.Errorf("issuesMatchingPreset(blocked) = %v, want %s", ids, want)
+	}
+}
+
+func TestMarkBlockedByHuman_OnlyAnOpenHumanTaskOnABlocksEdge(t *testing.T) {
+	// HUMAN-BLOCK means exactly: an agent task blocked by a human task.
+	dep := func(on, typ string) []beads.Dependency {
+		return []beads.Dependency{{DependsOnID: on, Type: typ}}
+	}
+	issues := []beads.Issue{
+		{ID: "h-open", Status: "open", Labels: []string{"human"}},
+		{ID: "h-closed", Status: "closed", Labels: []string{"human"}},
+		{ID: "a-blocked", Status: "open", Labels: []string{"src:agent"}, DependencyCount: 1, Dependencies: dep("h-open", "blocks")},
+		{ID: "a-untyped", Status: "open", DependencyCount: 1, Dependencies: dep("h-open", "")},
+		{ID: "a-done-blocker", Status: "open", Labels: []string{"src:agent"}, DependencyCount: 1, Dependencies: dep("h-closed", "blocks")},
+		{ID: "a-child", Status: "open", Labels: []string{"src:agent"}, DependencyCount: 1, Dependencies: dep("h-open", "parent-child")},
+		{ID: "a-related", Status: "open", Labels: []string{"src:agent"}, DependencyCount: 1, Dependencies: dep("h-open", "related")},
+		{ID: "h-on-h", Status: "open", Labels: []string{"human"}, DependencyCount: 1, Dependencies: dep("h-open", "blocks")},
+	}
+	markBlockedByHuman(context.Background(), &stubDepLister{}, issues, nil)
+	want := map[string]bool{"a-blocked": true, "a-untyped": true}
+	for _, i := range issues {
+		if i.BlockedByHuman != want[i.ID] {
+			t.Errorf("%s: BlockedByHuman = %v, want %v", i.ID, i.BlockedByHuman, want[i.ID])
+		}
+	}
+}
+
+func TestIsHumanRow_IncludesMyClaims(t *testing.T) {
+	const me = "jimbottle"
+	mine := beads.Issue{Status: "in_progress", Assignee: me}
+	if !isHumanRow(mine, me) {
+		t.Error("a task I claimed is badged HUMAN, so it belongs in the human view")
+	}
+	if isHumanRow(beads.Issue{Status: "in_progress", Assignee: "claude-a"}, me) {
+		t.Error("an agent's claim is not a human row")
+	}
+	if isHumanRow(beads.Issue{Status: "open", BlockedByHuman: true}, me) {
+		t.Error("HUMAN-BLOCK is in mine, not in human")
+	}
+	if !isHumanRow(beads.Issue{Labels: []string{"human"}}, "") {
+		t.Error("the human label is always a human row")
 	}
 }

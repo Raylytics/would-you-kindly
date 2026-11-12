@@ -64,7 +64,7 @@ wyk
 
 — and the TUI shows issues from every registered repo, with a
 `Repo` and `Branch` column on the left of the table. Writes (`a`,
-`H`, `n`) route to the correct repo automatically. The registry
+`H`, `c`) route to the correct repo automatically. The registry
 lives at `~/.config/wyk/repos.json` (or `$XDG_CONFIG_HOME/wyk/...`)
 and is plain editable JSON.
 
@@ -87,7 +87,7 @@ failures — giving the roborev → beads → wyk loop a dedicated triage
 view. Review-sourced rows also carry a `◆` marker in the title and a
 `N review` count rides the status bar in every preset, so they're
 distinguishable at a glance without leaving your current view. (The
-marker is provenance, kept separate from the Owner column's ownership
+marker is provenance, kept separate from the Turn column's whose-move
 badge — a review issue is still agent-owned work to fix.)
 
 The `blocked` preset is what `bd blocked` computes, not a status query:
@@ -324,10 +324,10 @@ assignee and `in_progress` status. Expiry is computed on read, with no
 daemon. The default TTL is 2h (`wyk config set claim_ttl 90m`, or
 `$WYK_CLAIM_TTL`), and the Stop hook below renews it on every turn. An
 expired lease is claimable: taking it over leaves a note naming the
-previous holder. In the TUI a live lease shows as `@<owner>` in the
-Owner column and a lapsed one as `EXPIRED`, and `x` claims the cursor
-row (or the marked rows) under the same identity the `mine` preset
-uses — the same rules as `wyk claim`, so a live lease held by someone
+previous holder. The TUI shows none of this: a claimed row is `AGENT`
+(or `HUMAN` when you claimed it), with no holder name and no expiry;
+the detail view names who claimed it. `x` claims the cursor
+row (or the marked rows) as you — the same rules as `wyk claim`, so a live lease held by someone
 else and a `human` / `agent-handoff` row are refused with the holder or
 the fence named (use `wyk claim -force` to override). Full rules:
 [`docs/CONTRACT.md`](CONTRACT.md) (wyk-contract/v4).
@@ -471,23 +471,31 @@ to restore the original.
 | Key       | Action                                            |
 | --------- | ------------------------------------------------- |
 | `j` / `k` | Move down / up                                    |
-| `g` / `G` | Top / bottom of the list                          |
+| `g` / `G` | Top / bottom of the list (`home` / `end` too)     |
+| `pgup` / `pgdn` | Move a screenful                            |
 | `]` / `[` | Next / previous human-flagged issue (wraps)       |
 | `enter`   | Open the selected issue (read its instructions); in the split layout, focus the detail pane |
 | `esc`     | Back to the list                                  |
-| `p`       | Show / hide the detail pane (auto-on at 140×36+; persisted) |
-| `/`       | Open the filter input (fuzzy title; substring on repo, branch, ID, body) |
+| `L`       | Show / hide the detail pane (auto-on at 140×36+; persisted) |
+| `f`, `/`  | Open the filter input (fuzzy title; substring on repo, branch, ID, body) |
 | `@name`   | Expand a saved fuzzy filter (manage via `:filter`)|
-| `h`       | Toggle the human-flagged view (press again to return)   |
-| `tab`     | Cycle preset filters (all → ready → human → mine → blocked → review) |
-| `C`       | Toggle "show closed" across all presets           |
+| `tab`     | Next view (all → can start → human → mine → blocked → code review; `-preset` and `:view` take `ready` / `review` for the two renamed ones) |
+| `h`       | Toggle "show closed" across all presets (`C` too) |
 | `1`–`4` / `0` | Cap the view at P0 / ≤P1 / ≤P2 / ≤P3; `0` clears the cap |
 | `m`       | Toggle mouse capture (off = native click-drag text selection) |
 | `s` / `S` | Cycle sort key / reverse the active direction     |
-| `o`       | Column-visibility overlay (persists to `ui.json`) |
+| `o`       | Column-visibility overlay (persists to `ui.json`; `Session` starts hidden) |
 | `r`       | Refresh from bd now                               |
 | `?`       | Open the help overlay                             |
 | `q`       | Quit                                              |
+
+Keys that do the same job in roborev's TUI are the same key here:
+`a` close, `c` comment (a note), `y` copy, `f` filter, `o` columns,
+`L` layout, `h` hide/show closed, `g`/`G`, `pgup`/`pgdn`,
+`ctrl+p`/`ctrl+n`. The wyk keys they replaced still work as aliases:
+`/` (filter), `n` (note), `p` (layout), `C` (closed). `l` is now the
+label key, since `L` moved to layout. `h` no longer jumps to the human
+view; `tab` cycles to it (or launch with `wyk -preset human`).
 
 ### Writing
 
@@ -496,10 +504,10 @@ to restore the original.
 | `a`   | Close the cursor issue (asks `[y/N]` to confirm)            |
 | `H`   | Toggle the `human` label on the cursor issue                |
 | `x`   | Claim the cursor issue (or the marked rows) as a lease for your identity; renews one you hold |
-| `n`   | Append a note to the cursor issue (multi-line textarea)     |
+| `c`   | Append a note to the cursor issue (multi-line textarea)     |
 | `N`   | File a new issue in the cursor's repo (QuickAdd; refuses without an assignee) |
 | `e`   | Edit the cursor issue's description in `$EDITOR`            |
-| `L`   | Toggle an arbitrary label on the cursor issue               |
+| `l`   | Toggle an arbitrary label on the cursor issue               |
 | `O`   | Change the cursor issue's assignee                          |
 | `d`   | Defer the cursor issue (`bd update --defer`)                |
 | `T`   | Cycle the cursor issue's type (task → bug → feat → …)       |
@@ -523,10 +531,10 @@ After any write, the list refetches and a status banner appears
 above the help bar (e.g. `closed wyk-42`, or `close wyk-42 failed: …`).
 
 The detail view (`enter` on a row) shows the issue's full
-description and any accumulated notes (added via `n` or `bd note`).
+description and any accumulated notes (added via `c` or `bd note`).
 Notes lazy-load via a `bd show` call on entry, so the section
 appears a beat after the rest of the detail view. In the detail
-view, `c` copies the instructions (the description body) to the
+view, `y` copies the instructions (the description body) to the
 clipboard.
 
 On a terminal of at least 140×36 the detail is a **pane** next to the
@@ -534,7 +542,7 @@ list instead of a separate screen (the layout roborev's TUI uses): it
 follows the cursor as you move — the row paints immediately, the
 notes and dependency edges arrive after a short debounce so holding
 `j` doesn't fan out a `bd show` per row. `enter` focuses the pane (all
-the detail keys work there), `esc` returns to the list, and `p` hides
+the detail keys work there), `esc` returns to the list, and `L` hides
 or shows the pane; the choice persists in `state.json`. While the list
 has focus the wheel scrolls whichever pane the pointer is over;
 focusing the pane releases mouse capture so you can select text.
@@ -616,7 +624,7 @@ The agent moves on to other work. The bd issue now carries `human`,
 `src:agent`, and the runbook as its description.
 
 **Afternoon, at your terminal.** You run `wyk` (or it's already
-open). Press `h` to jump to the human view:
+open). `tab` to the human view (or start there with `wyk -preset human`):
 
 ```
 Owner   Repo               Branch  ID                     Type  Status  Priority  Updated  Session   Title
@@ -626,7 +634,7 @@ HUMAN   acme-pipeline      feat/x  acme-pipeline-mc42     bug   open    P0      
 
 On a terminal of 140×36 or larger the list takes the left pane and the
 selected issue's runbook renders in a right pane that follows the
-cursor (`p` hides it) — so reading a handoff is a `j`, not a `⏎`/`esc`
+cursor (`L` hides it) — so reading a handoff is a `j`, not a `⏎`/`esc`
 round-trip.
 
 (The `HUMAN` badge is rendered plain regardless of who filed the issue —
@@ -636,16 +644,16 @@ itself stays uniform so the eye reads it as one thing.)
 **The columns, left to right.** Every column is shown below; the `o`
 overlay toggles any of them off (persisted to `ui.json`), and on a
 narrow terminal the lower-value ones auto-hide to keep rows intact.
-`Owner`, `ID`, `Priority`, and `Title` are always shown.
+`Turn`, `ID`, `Priority`, and `Title` are always shown.
 
 | Column     | Definition                                                                                                              |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Owner`    | Whose move it is. `HUMAN` — a human must act. `AGENT` — agent-owned; the default for any issue without a `human` label. `HUMAN-BLOCK` — an agent issue blocked by a human-flagged dependency. `AGENT-HANDOFF` — another agent is working it, so this agent must not interfere (a human orchestrates the coordination). `@<owner>` — checked out right now by that agent identity (`wyk claim`). `EXPIRED` — its holder stopped renewing, so it's claimable. Never blank. |
+| `Turn`     | Whose move it is. `HUMAN` — you must act: the `human` label, or a task you claimed with `x`. `AGENT` — an agent's move, waiting or in progress; the default. `WAITING-ON-HUMAN` (formerly `HUMAN-BLOCK`) — an agent task blocked by a human task: it has a `blocks` dependency on a `human` issue that is still open. `OTHER-AGENT` — multi-agent setups only: reserved for another agent (the `agent-handoff` label). Never blank; never a name or an expiry. (Formerly `Owner`.) |
 | `Repo`     | The registered bd workspace the issue lives in. Shown when the view spans more than one repo.                            |
 | `Branch`   | That repo's current git branch. Shown in multi-repo mode.                                                                |
 | `ID`       | The full bd issue ID (e.g. `would-you-kindly-2oa`) — the same string bd and your agents use, so a quoted ID matches a row on sight. The column sizes itself to the longest ID in view. Yank it with `y`. |
 | `Type`     | The issue type, abbreviated to four characters: `task`, `bug`, `feat`(ure), `chor`(e), `epic`, `deci`(sion), `spik`(e), `stor`(y), `mile`(stone). |
-| `Status`   | The bd lifecycle state: `open`, `wip` (in&#95;progress), `hooked`, `blocked`, `deferred`, `pinned`, `closed`. Closed rows are dimmed; the frozen states (`deferred`, `pinned`) render de-emphasized. |
+| `Status`   | The bd lifecycle state: `open`, `in_progress`, `hooked`, `blocked`, `deferred`, `pinned`, `closed`. Closed rows are dimmed; the frozen states (`deferred`, `pinned`) render de-emphasized. |
 | `Priority` | `P0` (most urgent) through `P4` (backlog). Bump with `+` / `-`; opt into colour emphasis in `ui.json`.                   |
 | `Updated`  | How long since the issue last changed — `now`, `3h ago`, `2d ago`, or a `Jan 2` date once it's older than 30 days.       |
 | `Session`  | The Claude session that filed the issue (first 8 chars of the ID), recorded when it's created via `wyk create`. Blank for issues filed any other way. |
@@ -681,7 +689,7 @@ window into it; `wyk handoff` and `wyk inbox` are the agent's.
 
 The GIF at the top of the README is the agent↔human round-trip: an
 agent files a runbook with `wyk handoff`, the human jumps to the
-**human view** (`h`), reads the runbook in the detail pane, and closes
+**human view** (`tab`), reads the runbook in the detail pane, and closes
 it (`a`) — the queue clears. Regenerate it (and the still below) with
 `bash docs/screenshots/render-demo.sh` (from the repo root); the script seeds a throwaway bd
 workspace and isolates every wyk config/cache dir so nothing private

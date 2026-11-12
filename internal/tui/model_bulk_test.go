@@ -41,8 +41,8 @@ func TestRepeat_AfterLabelAppliesToNextCursor(t *testing.T) {
 	}}}
 	m := applyMutatorFetched(New(s), s)
 
-	// L → "needs-review" → enter (toggle-adds to a-1).
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	// l → "needs-review" → enter (toggle-adds to a-1).
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	m = model.(Model)
 	for _, r := range "needs-review" {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -141,7 +141,7 @@ func TestHandleBulkWriteResult_TotalSuccessUsesPastTenseVerb(t *testing.T) {
 	}{
 		{"close", "closed"},
 		{"defer", "deferred"},
-		{"flag", "flagged"},
+		{"flag", "handed over"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.action, func(t *testing.T) {

@@ -143,7 +143,7 @@ wyk claim -force would-you-kindly-1k2j     # take over a LIVE lease (leaves a no
 
 ## `wyk next`
 
-What should I work on? One ranked list for an agent: inbox items first (work a human bounced back), then `bd ready`, minus anything another identity holds a LIVE lease on, minus `agent-handoff` and `human` rows. -claim atomically claims the top pick (wyk-contract/v4).
+What should I work on? One ranked list for an agent: agent inbox items first (work a human bounced back), then `bd ready`, minus anything another identity holds a LIVE lease on, minus `agent-handoff` and `human` rows. -claim atomically claims the top pick (wyk-contract/v4).
 
 ```
 wyk next [-C <dir>] [-all] [-repo name] [-identity name] [-limit N] [-claim] [-json] [-compact] [-slim]
@@ -274,7 +274,7 @@ _no flags_
 
 ## `wyk conventions`
 
-Print the agent-facing label convention (human, src:agent, inbox query).
+Print the agent-facing label convention (human, src:agent, agent inbox query).
 
 ```
 wyk conventions [-json]

@@ -12,15 +12,16 @@ warns `no beads configuration found` or shows no issues, the working
 tree lost `.beads/metadata.json`: run `wyk doctor` and paste its
 restore command rather than trusting the empty result.
 
-> ## Owner column: HUMAN / AGENT / HUMAN-BLOCK / AGENT-HANDOFF
-> The TUI **owner column** shows whose move it is, driven by labels (NOT
+> ## Turn column: HUMAN / AGENT / WAITING-ON-HUMAN / OTHER-AGENT
+> The TUI **Turn column** (formerly "Owner") shows whose move it is, driven by labels (NOT
 > bd's `owner`/`assignee` fields, which are out of scope here):
 > - `human` label → **HUMAN** (a human needs to act).
-> - `agent-handoff` label → **AGENT-HANDOFF** (another agent is working
+> - `agent-handoff` label → **OTHER-AGENT** badge (another agent is working
 >   this; THIS agent must not interfere — a human orchestrates the
 >   coordination). Excluded from the agent inbox so the "work it"
 >   imperative doesn't fire on it.
-> - agent task blocked by a human-flagged dep → **HUMAN-BLOCK**.
+> - agent task blocked by an open human task → **WAITING-ON-HUMAN**
+>   (formerly HUMAN-BLOCK).
 > - everything else → **AGENT**. A null owner (no `src:`/`human` label)
 >   **defaults to AGENT**, so the column is never blank.
 >

@@ -59,7 +59,7 @@ func issuesMatchingPreset(snapshot []beads.Issue, have, want filter.Preset, me s
 	var keep func(beads.Issue) bool
 	switch want {
 	case filter.PresetHuman:
-		keep = func(i beads.Issue) bool { return i.IsHuman() && i.Status != "closed" }
+		keep = func(i beads.Issue) bool { return isHumanRow(i, me) && i.Status != "closed" }
 	case filter.PresetBlocked:
 		open := openIDSet(snapshot)
 		keep = func(i beads.Issue) bool { return isBlockedRow(i, open) }
@@ -69,13 +69,10 @@ func issuesMatchingPreset(snapshot []beads.Issue, have, want filter.Preset, me s
 	case filter.PresetReview:
 		keep = func(i beads.Issue) bool { return i.HasLabel(filter.ReviewLabel) && i.Status != "closed" }
 	case filter.PresetMine:
-		if me == "" {
-			// QueryWithClosed degrades `mine` with no identity to
-			// the non-closed set.
-			keep = func(i beads.Issue) bool { return i.Status != "closed" }
-			break
-		}
-		keep = func(i beads.Issue) bool { return i.Assignee == me && i.Status != "closed" }
+		// By badge, not by assignee (isMineRow). The all snapshot is
+		// already marked for HUMAN-BLOCK, so this derives exactly what
+		// a mine fetch returns.
+		keep = func(i beads.Issue) bool { return isMineRow(i, me) && i.Status != "closed" }
 	default:
 		return nil, false
 	}
@@ -172,7 +169,7 @@ func (m Model) jumpToHuman(dir int) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	m.setStatus("no human-flagged issues in this view")
+	m.setStatus("nothing waiting on you in this view")
 	return m, nil
 }
 
@@ -200,15 +197,6 @@ func (m Model) switchPreset(p filter.Preset) (tea.Model, tea.Cmd) {
 	// flight still refreshes, as before.
 	if p == m.preset && m.refreshing {
 		return m, nil
-	}
-	// Record the h-toggle's return target on ANY transition into the
-	// human view — h, tab, the :preset palette — not just the h key,
-	// so toggling out always returns to where the user actually came
-	// from rather than a target recorded on an older h trip
-	// (roborev #2061/#2062). Still only on the way IN, so a stray
-	// double-h can't strand the target on "human".
-	if p == filter.PresetHuman && m.preset != filter.PresetHuman {
-		m.humanReturnPreset = m.preset
 	}
 	// Leaving all while the adopted prefetch is still running: hand
 	// it back to the background BEFORE this switch dispatches, or
@@ -341,7 +329,7 @@ func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// types a literal slash, since branches (feat/x) and paths in
 	// descriptions are matched fields that need one.
 	if msg.Type == tea.KeyEsc || msg.Type == tea.KeyEnter ||
-		(keyHit(msg, m.keys.Filter) && m.input.Value() == "") {
+		(msg.String() == "/" && m.input.Value() == "") {
 		// Trim once so the lookup key, the applied query, and the
 		// status banner all agree — a stray trailing space on
 		// "@nope " used to keep the raw value as the literal
