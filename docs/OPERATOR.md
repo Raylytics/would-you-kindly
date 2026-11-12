@@ -482,7 +482,7 @@ to restore the original.
 | `enter`   | Open the selected issue (read its instructions); in the split layout, focus the detail pane |
 | `esc`     | Back to the list                                  |
 | `L`       | Show / hide the detail pane (auto-on at 140×36+; persisted) |
-| `f`, `/`  | Open the filter input (fuzzy title; substring on repo, branch, ID, body). While it is open: arrows, `ctrl+n`/`ctrl+p` and `pgup`/`pgdn` still move the selection; `tab` closes it and goes to the next view; `enter` or `esc` closes it, keeping the filter. Letters are always filter text |
+| `f`, `/`  | Open the filter input (fuzzy title; substring on repo, branch, ID, body). While it is open: arrows, `ctrl+n`/`ctrl+p` and `pgup`/`pgdn` still move the selection; `tab` closes it and goes to the next view; `enter` or `esc` closes it, keeping the filter; the mouse wheel and a click still scroll and select rows, and a second click opens the row. Letters are always filter text |
 | `@name`   | Expand a saved fuzzy filter (manage via `:filter`)|
 | `tab`     | Next view (all → can start → human → mine → blocked → code review; `-preset` and `:view` take `ready` / `review` for the two renamed ones) |
 | `h`       | Toggle "show closed" across all presets (`C` too) |

@@ -502,7 +502,7 @@ func fitCell(s string, width int) string {
 // while the list or the pane has focus — prompts drop mouse input as
 // they do in the stacked layout.
 func (m Model) handleSplitMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeList && m.mode != modeDetail {
+	if m.mode != modeList && m.mode != modeDetail && m.mode != modeFilter {
 		return m, nil
 	}
 	g := m.splitGeometry()
@@ -524,11 +524,21 @@ func (m Model) handleSplitMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.detailVP, cmd = m.detailVP.Update(msg)
 			return m, cmd
 		case tea.MouseButtonLeft:
+			if m.mode == modeFilter && m.detailIssue.ID != "" {
+				// Focusing the pane leaves the list: close the
+				// prompt (query kept) and land in the pane.
+				closed, closeCmd := m.closeFilterPrompt()
+				closed.mode = modeDetail
+				return closed, closeCmd
+			}
 			if m.mode == modeList && m.detailIssue.ID != "" {
 				m.mode = modeDetail
 			}
 		}
 		return m, nil
+	}
+	if m.mode == modeFilter {
+		return m.mouseInFilter(msg, g.listW)
 	}
 	allowOpen := true
 	if m.mode == modeDetail {

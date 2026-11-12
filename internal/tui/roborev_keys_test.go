@@ -247,3 +247,68 @@ func TestFilterPrompt_OtherKeysStillWork(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterPrompt_MouseScrollsAndSelects(t *testing.T) {
+	// 100x30 is the stacked layout, 160x40 the split one: the mouse
+	// routes differently in each, and both must reach the list.
+	for _, size := range [][2]int{{100, 30}, {160, 40}} {
+		m, _ := splitFixture(t, size[0], size[1])
+		model, _ := m.Update(runeKey('f'))
+		m = model.(Model)
+		send := func(msg tea.MouseMsg) {
+			t.Helper()
+			model, _ := m.Update(msg)
+			m = model.(Model)
+		}
+
+		send(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+		send(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+		if m.mode != modeFilter || m.cursor != 2 {
+			t.Fatalf("%v: the wheel should move the selection with the prompt open; mode=%v cursor=%d", size, m.mode, m.cursor)
+		}
+
+		// A click selects a row and leaves the prompt up.
+		click := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY() + 5}
+		send(click)
+		if m.mode != modeFilter || m.cursor != 5 {
+			t.Fatalf("%v: a click should select row 5 with the prompt open; mode=%v cursor=%d", size, m.mode, m.cursor)
+		}
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 4, Y: click.Y})
+
+		// Typing still goes to the query afterwards.
+		model, _ = m.Update(runeKey('i'))
+		m = model.(Model)
+		if m.mode != modeFilter || m.input.Value() != "i" {
+			t.Fatalf("%v: typing after a click should still edit the query; mode=%v value=%q", size, m.mode, m.input.Value())
+		}
+
+		// A second click on the selected row opens it: the prompt
+		// closes, the query stays applied.
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY() + 1})
+		target := m.visible[m.cursor].ID
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 4, Y: m.rowsStartY() + 1})
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY() + 1})
+		if m.mode != modeDetail || m.detailIssue.ID != target || m.query != "i" {
+			t.Errorf("%v: a second click should open %s and keep the query; mode=%v issue=%s query=%q", size, target, m.mode, m.detailIssue.ID, m.query)
+		}
+	}
+}
+
+func TestFilterPrompt_FooterShowsWhatWorks(t *testing.T) {
+	m, _ := splitFixture(t, 160, 40)
+	model, _ := m.Update(runeKey('f'))
+	m = model.(Model)
+	var got []string
+	for _, b := range m.footerBindings() {
+		got = append(got, b.Help().Key)
+	}
+	joined := strings.Join(got, " ")
+	for _, want := range []string{"↑/↓", "pgup/pgdn", "tab", "⏎", "esc"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("prompt footer missing %q; got %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "j/k") {
+		t.Errorf("prompt footer must not advertise j/k, which type here; got %s", joined)
+	}
+}

@@ -142,6 +142,22 @@ func (m *Model) pageList(pages int) {
 // and allowOpen says whether a click on the already-selected row
 // opens it (handleSplitMouse withholds that for the click that only
 // returns focus from the pane).
+// mouseInFilter is handleMouse while the filter prompt is open. The
+// prompt only takes the keyboard; the list it narrows is on screen, so
+// the wheel scrolls it and a click selects a row with the prompt still
+// up. A gesture that leaves the list — the second click that opens the
+// selected row — cannot happen with the prompt up, so the prompt closes
+// first (the query stays applied), exactly as tab does from the keyboard.
+func (m Model) mouseInFilter(msg tea.MouseMsg, listWidth int) (tea.Model, tea.Cmd) {
+	next, cmd := m.handleMouse(msg, listWidth, true)
+	if nm, ok := next.(Model); ok && nm.mode != modeFilter {
+		closed, closeCmd := m.closeFilterPrompt()
+		next, cmd = closed.handleMouse(msg, listWidth, true)
+		return next, tea.Batch(closeCmd, cmd)
+	}
+	return next, cmd
+}
+
 func (m Model) handleMouse(msg tea.MouseMsg, listWidth int, allowOpen bool) (tea.Model, tea.Cmd) {
 	switch msg.Action {
 	case tea.MouseActionRelease:

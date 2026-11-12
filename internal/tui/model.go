@@ -1801,11 +1801,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the `m` toggle releases it):
 		// - modeList: wheel moves the cursor; left-click lands it
 		// - modeDetail / modeOutput: wheel scrolls the viewport
-		// - other modes (help, modals, prompts): keyboard-focused,
+		// - modeFilter: the list is still on screen under the prompt,
+		//   so the wheel and clicks reach it (mouseInFilter)
+		// - other modes (help, modals, other prompts): keyboard-focused,
 		//   the event is dropped
 		switch m.mode {
 		case modeList:
 			return m.handleMouse(msg, m.width, true)
+		case modeFilter:
+			return m.mouseInFilter(msg, m.width)
 		case modeDetail:
 			var cmd tea.Cmd
 			m.detailVP, cmd = m.detailVP.Update(msg)

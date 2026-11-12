@@ -1373,11 +1373,26 @@ func (m Model) statusBar() string {
 	return out
 }
 
+// filterPromptHelp is the footer while the filter prompt is open.
+var filterPromptHelp = []key.Binding{
+	key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "move")),
+	key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "page")),
+	key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next view")),
+	key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "done (keeps filter)")),
+	key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "done")),
+	key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^c", "quit")),
+}
+
 // footerBindings is the short-help set the status-bar footer renders: the
 // write-aware list, minus the write keys when there's no Mutator wired up.
 // Shared by statusBar (render) and chromeExtra (height budget) so the two
 // can't drift on the read-only swap rule.
 func (m Model) footerBindings() []key.Binding {
+	if m.mode == modeFilter {
+		// The list keys are text while the prompt is open; advertise
+		// what actually works (updateFilter, mouseInFilter).
+		return filterPromptHelp
+	}
 	if m.splitView() && m.paneFocused() {
 		return m.keys.paneHelp(m.mutator() != nil)
 	}
