@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jimbottle/would-you-kindly/internal/beads"
 )
 
 // These tests pin the keys wyk shares with roborev's TUI (see the
@@ -181,5 +183,182 @@ func TestRoborevKeys_FooterAdvertisesSharedKeys(t *testing.T) {
 		if !strings.Contains(joined, s) {
 			t.Errorf("pane footer missing %q; got %s", s, joined)
 		}
+	}
+}
+
+func TestFilterPrompt_OtherKeysStillWork(t *testing.T) {
+	open := func(t *testing.T, w, h int) Model {
+		t.Helper()
+		m, _ := splitFixture(t, w, h)
+		model, _ := m.Update(runeKey('f'))
+		m = model.(Model)
+		if m.mode != modeFilter {
+			t.Fatalf("precondition: f should open the prompt; mode=%v", m.mode)
+		}
+		return m
+	}
+	press := func(m Model, k tea.KeyMsg) Model {
+		model, _ := m.Update(k)
+		return model.(Model)
+	}
+
+	// Navigation works with the prompt still open.
+	m := open(t, 100, 20)
+	page := m.bodyHeight()
+	m = press(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.mode != modeFilter || m.cursor != page {
+		t.Errorf("pgdn should page with the prompt open; mode=%v cursor=%d want %d", m.mode, m.cursor, page)
+	}
+	m = press(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = press(m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.mode != modeFilter || m.cursor != 1 {
+		t.Errorf("down then pgup should land on row 1 with the prompt open; mode=%v cursor=%d", m.mode, m.cursor)
+	}
+
+	// Letters are text, including ones that are list keys.
+	m = open(t, 100, 20)
+	for _, r := range "a" {
+		m = press(m, runeKey(r))
+	}
+	if m.mode != modeFilter || m.input.Value() != "a" {
+		t.Errorf("a letter should type into the query, not act; mode=%v value=%q", m.mode, m.input.Value())
+	}
+
+	// tab cannot coexist with the prompt: it closes it, keeps the query,
+	// and moves to the next view.
+	m = open(t, 100, 20)
+	m = press(m, runeKey('t'))
+	before := m.preset
+	m = press(m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.mode != modeList || m.query != "t" {
+		t.Errorf("tab should close the prompt and keep the query; mode=%v query=%q", m.mode, m.query)
+	}
+	if m.preset == before {
+		t.Error("tab should also move to the next view")
+	}
+
+	// enter and esc only close it: the selection made while typing is
+	// kept, and nothing is opened.
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeyEsc}} {
+		m = open(t, 100, 20)
+		m = press(m, runeKey('t'))
+		m = press(m, tea.KeyMsg{Type: tea.KeyDown})
+		m = press(m, k)
+		if m.mode != modeList || m.query != "t" || m.cursor != 1 {
+			t.Errorf("%v should close the prompt, keeping query and selection; mode=%v query=%q cursor=%d", k.Type, m.mode, m.query, m.cursor)
+		}
+	}
+}
+
+func TestFilterPrompt_MouseScrollsAndSelects(t *testing.T) {
+	// 100x30 is the stacked layout, 160x40 the split one: the mouse
+	// routes differently in each, and both must reach the list.
+	for _, size := range [][2]int{{100, 30}, {160, 40}} {
+		m, _ := splitFixture(t, size[0], size[1])
+		model, _ := m.Update(runeKey('f'))
+		m = model.(Model)
+		send := func(msg tea.MouseMsg) {
+			t.Helper()
+			model, _ := m.Update(msg)
+			m = model.(Model)
+		}
+
+		send(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+		send(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+		if m.mode != modeFilter || m.cursor != 2 {
+			t.Fatalf("%v: the wheel should move the selection with the prompt open; mode=%v cursor=%d", size, m.mode, m.cursor)
+		}
+
+		// A click selects a row and leaves the prompt up.
+		click := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY() + 5}
+		send(click)
+		if m.mode != modeFilter || m.cursor != 5 {
+			t.Fatalf("%v: a click should select row 5 with the prompt open; mode=%v cursor=%d", size, m.mode, m.cursor)
+		}
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 4, Y: click.Y})
+
+		// Typing still goes to the query afterwards.
+		model, _ = m.Update(runeKey('i'))
+		m = model.(Model)
+		if m.mode != modeFilter || m.input.Value() != "i" {
+			t.Fatalf("%v: typing after a click should still edit the query; mode=%v value=%q", size, m.mode, m.input.Value())
+		}
+
+		// A second click on the selected row opens it: the prompt
+		// closes, the query stays applied.
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY() + 1})
+		target := m.visible[m.cursor].ID
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 4, Y: m.rowsStartY() + 1})
+		send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY() + 1})
+		if m.mode != modeDetail || m.detailIssue.ID != target || m.query != "i" {
+			t.Errorf("%v: a second click should open %s and keep the query; mode=%v issue=%s query=%q", size, target, m.mode, m.detailIssue.ID, m.query)
+		}
+	}
+}
+
+func TestFilterPrompt_FooterShowsWhatWorks(t *testing.T) {
+	m, _ := splitFixture(t, 160, 40)
+	model, _ := m.Update(runeKey('f'))
+	m = model.(Model)
+	var got []string
+	for _, b := range m.footerBindings() {
+		got = append(got, b.Help().Key)
+	}
+	joined := strings.Join(got, " ")
+	for _, want := range []string{"↑/↓", "pgup/pgdn", "tab", "⏎", "esc"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("prompt footer missing %q; got %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "j/k") {
+		t.Errorf("prompt footer must not advertise j/k, which type here; got %s", joined)
+	}
+}
+
+func TestFilterPrompt_ClickOpensTheRowThatWasClicked(t *testing.T) {
+	// While typing, the list is filtered by the raw input; closing the
+	// prompt trims it, which can widen and reorder the list. The row
+	// that opens must be the one under the pointer, not whatever sits
+	// at that position afterwards (roborev #7288).
+	src := &stubSource{issues: []beads.Issue{
+		{ID: "a-1", Title: "abcd", Status: "open"},
+		{ID: "a-2", Title: "ab cd", Status: "open"},
+	}}
+	m := New(src)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = applyFetched(model.(Model), src)
+	model, _ = m.Update(runeKey('f'))
+	m = model.(Model)
+	for _, r := range "ab " {
+		model, _ = m.Update(runeKey(r))
+		m = model.(Model)
+	}
+	if len(m.visible) != 1 || m.visible[0].ID != "a-2" {
+		t.Fatalf("precondition: %q should show only a-2; got %v", m.input.Value(), idsOf(m.visible))
+	}
+	// The cursor is already on the only row, so this click opens it.
+	model, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 4, Y: m.rowsStartY()})
+	m = model.(Model)
+	if m.mode != modeDetail || m.detailIssue.ID != "a-2" {
+		t.Errorf("the click should open a-2, the row under the pointer; mode=%v issue=%q visible=%v", m.mode, m.detailIssue.ID, idsOf(m.visible))
+	}
+}
+
+func TestFilterPrompt_UndoKeyClosesPromptAndRuns(t *testing.T) {
+	// ctrl+z is the other non-text list key: like tab, it closes the
+	// prompt (query kept) and runs, rather than vanishing into the
+	// text input (roborev #7287).
+	s := &stubMutator{stubSource: stubSource{issues: sampleIssues()}}
+	m := applyMutatorFetched(New(s), s)
+	m.lastClosed = m.visible[0]
+	model, _ := m.Update(runeKey('f'))
+	model, _ = model.(Model).Update(runeKey('r'))
+	model, cmd := model.(Model).Update(tea.KeyMsg{Type: tea.KeyCtrlZ})
+	m = model.(Model)
+	if m.mode != modeList || m.query != "r" {
+		t.Errorf("ctrl+z should close the prompt and keep the query; mode=%v query=%q", m.mode, m.query)
+	}
+	if cmd == nil {
+		t.Error("ctrl+z should dispatch the undo")
 	}
 }
