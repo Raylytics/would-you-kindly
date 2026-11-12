@@ -94,22 +94,44 @@ func runHook(args []string) int {
 var bdCreateRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+create(?:\\s|$|[;&|)`<>])")
 
 // bdClaimRE matches a `bd … update … --claim` invocation at a command
-// position, with the same anchoring as bdCreateRE. Group 1 is whatever
-// sits between `bd` and `update` — bd's global flags (`--json`,
-// `-C dir`, `--actor x`), each optionally followed by one value word —
-// so bdClaimsAsBDActor can tell an explicit `--actor` from the rest.
-// `[^\n;&|)`]*` keeps `--claim` inside the one invocation; `--claim=true`
-// counts as well as the bare flag.
-var bdClaimRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*bd\\s+((?:-[^\\s;&|)`]+\\s+(?:[^-\\s;&|)`][^\\s;&|)`]*\\s+)?)*?)update\\s[^\\n;&|)`]*--claim(?:=[^\\s;&|)`<>]*)?(?:\\s|$|[;&|)`<>])")
+// position, with the same anchoring as bdCreateRE. Group 1 is the
+// invocation itself, from `bd` through the claim flag. Between `bd` and
+// `update` it allows bd's global flags (`--json`, `-C dir`, `--actor x`),
+// each optionally followed by one value word; `[^\n;&|)`]*` keeps
+// `--claim` inside the one invocation; `--claim=true` counts as well as
+// the bare flag.
+var bdClaimRE = regexp.MustCompile("(?:^|[\\n;&|(`])\\s*(bd\\s+(?:-[^\\s;&|)`]+\\s+(?:[^-\\s;&|)`][^\\s;&|)`]*\\s+)?)*?update\\s[^\\n;&|)`]*--claim(?:=[^\\s;&|)`<>]*)?)(?:\\s|$|[;&|)`<>])")
 
 // bdClaimsAsBDActor reports whether the (redacted) command claims an
-// issue under bd's default actor. An invocation that passes --actor is
-// left alone: naming an actor is the caller saying who the claim is for.
+// issue under bd's default actor. An invocation that passes --actor,
+// before or after the subcommand, is left alone: naming an actor is the
+// caller saying who the claim is for.
+//
+// Every claim invocation in the command is checked, not just the first:
+// the regex consumes the separator that ends a match, so the search
+// restarts ON that separator — otherwise an exempt claim would hide a
+// bare one chained after it (`bd --actor x update a --claim; bd update
+// b --claim`).
 func bdClaimsAsBDActor(redacted string) bool {
-	for _, m := range bdClaimRE.FindAllStringSubmatch(redacted, -1) {
-		if !strings.Contains(m[1], "--actor") {
+	for pos := 0; pos < len(redacted); {
+		m := bdClaimRE.FindStringSubmatchIndex(redacted[pos:])
+		if m == nil {
+			return false
+		}
+		// The invocation runs on past the claim flag to the next
+		// separator: `--actor` may follow `--claim`.
+		inv := redacted[pos+m[2]:]
+		if end := strings.IndexAny(inv, "\n;&|)`"); end >= 0 {
+			inv = inv[:end]
+		}
+		if !strings.Contains(inv, "--actor") {
 			return true
 		}
+		next := pos + m[1] - 1 // back onto the separator the match consumed
+		if next <= pos {
+			next = pos + m[1]
+		}
+		pos = next
 	}
 	return false
 }

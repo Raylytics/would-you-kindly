@@ -127,6 +127,10 @@ func TestBDClaimGuard(t *testing.T) {
 		{"global flag with a value blocks", "bd -C ../x update my-1 --claim", 2},
 		{"explicit --actor= allowed", "bd --actor=reviewer update my-1 --claim", 0},
 		{"--actor on another command does not exempt", "bd --actor x list; bd update my-1 --claim", 2},
+		{"an exempt claim does not hide a later bare one", "bd --actor x update a --claim; bd update b --claim", 2},
+		{"same, chained with &&", "bd --actor x update a --claim && bd update b --claim", 2},
+		{"trailing --actor allowed", "bd update my-1 --claim --actor reviewer", 0},
+		{"two exempt claims allowed", "bd --actor x update a --claim; bd update b --claim --actor=y", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
