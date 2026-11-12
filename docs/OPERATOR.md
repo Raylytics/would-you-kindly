@@ -247,7 +247,8 @@ exactly this to v0.8.2). The GitHub release is correct; only the tap is
 behind. Fix the secret for next time (a fine-grained PAT with
 **Contents: read and write** on `raylytics/homebrew-wyk`, stored in
 1Password as `wyk-homebrew-tap`, then
-`op read "op://Private/wyk-homebrew-tap/HOMEBREW_TAP_GITHUB_TOKEN" | gh secret set HOMEBREW_TAP_GITHUB_TOKEN --repo Raylytics/would-you-kindly`),
+`op read "op://Personal/wyk-homebrew-tap/credential" --account my.1password.com | gh secret set HOMEBREW_TAP_GITHUB_TOKEN --repo Raylytics/would-you-kindly`;
+the item layout is in CLAUDE.md, Secrets),
 and either re-run the failed release job (`gh run rerun <run-id> --failed`)
 or bump the cask by hand:
 

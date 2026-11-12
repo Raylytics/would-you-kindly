@@ -187,17 +187,31 @@ with a note explaining what's still needed; don't sit silently).
 **Every credential an agent uses lives in 1Password.** API keys, tokens, DSNs, OAuth client secrets, webhook URLs, signing keys: if Claude Code, a cron job, an MCP server, or CI needs it, 1Password is the source of truth, and anything else (a local `.env`, SSM, GitHub Secrets, a server-side env file) is a derived copy seeded from it. This applies to the credentials this repo already uses, not only to new ones.
 
 - **Reference, don't copy.** Tracked files carry env var *names* and `op://<vault>/<item>/<field>` references, never values. Load at run time with `op run --env-file=op.env -- <cmd>` (an `op.env` of `op://` lines, gitignored) or `op read "op://..."` piped straight into the consumer.
-- **Name items `<repo>-<service>`** (for example `mc-epn`), one item per service, fields named after the env vars. Use the 1Password account that owns the work (personal `my.1password.com` for this repo) and pass `--account` when more than one is signed in.
+- **Name items `<repo>-<service>`** (for example `mc-epn`), one item per service, laid out as "How an item is laid out" below says. Use the 1Password account that owns the work (personal `my.1password.com` for this repo) and pass `--account` when more than one is signed in.
 - **A literal `.env` is debt, not a pattern.** It must be gitignored and `chmod 600`, and the inventory below marks it as pending migration. Move the values into 1Password the next time you touch them.
 - **Never print a secret.** Prove a key works by calling the API. Don't `cat` env files, echo variables, or paste values into transcripts, commit messages, or this file.
 - **Found a literal secret in a tracked file or in history?** Stop and tell the owner. It needs rotating and purging, and that is their call.
 - **Adding a credential:** create the 1Password item, add the `op://` line to `op.env.example` (or this repo's equivalent template), add a row below, and confirm the local copy is ignored.
 
+### How an item is laid out
+
+An audit on 2026-11-12 found 19 API Credential items in five shapes: secrets in plain-text fields, in a dropdown field, under ad-hoc names, and across four vaults. One shape from here on:
+
+- **Category: API Credential.** Not Login, not Secure Note.
+- **One secret → the built-in `credential` field.** It is the concealed field the template already has, so the app shows the item as holding a secret. Reference: `op://<vault>/<item>/credential`. Map it to the env var name in `op.env`, not in the item (`HOMEBREW_TAP_GITHUB_TOKEN=op://Personal/wyk-homebrew-tap/credential`).
+- **Several values for one service → one field per value, labelled exactly as the env var** (`PAYCOR_CLIENT_ID`, `PAYCOR_CLIENT_SECRET`), and leave `credential` empty. Reference: `op://<vault>/<item>/<ENV_VAR>`.
+- **Every secret is in a concealed (password-type) field.** Never a text field, a dropdown, `username`, or the notes: those show the value in plain text, and a dropdown-type field does not show as a secret at all (the first `wyk-homebrew-tap` held its token that way and looked empty). Non-secret values (a base URL, a key id, an account name) are plain text fields.
+- **A token is one value.** A GitHub personal access token, for instance, has no separate "secret": the token goes in `credential` and nothing else is needed.
+- **Record what it is.** `username` = the account that owns the credential; the expiry date in the item and in the table below; in the notes, what it grants and the page it was issued from.
+- **Check the shape without reading the value:** `op item get <item> --account my.1password.com --format json | python3 -c 'import json,sys; [print(f.get("label"), f.get("type"), "set" if f.get("value") else "empty") for f in json.load(sys.stdin)["fields"]]'` — the secret's row must say `CONCEALED set`.
+- **Seed a derived copy by piping, never by pasting:** `op read "op://<vault>/<item>/credential" --account my.1password.com | gh secret set <NAME> --repo <owner>/<repo>`. Then prove it works by calling the service.
+- **Replacing one:** create the new credential, put it in the same field of the same item (1Password keeps the old version), re-seed every derived copy listed in the table, verify, then revoke the old credential at the issuer.
+
 ### Credentials this repo uses
 
 | Env var | Used by / purpose | Where it lives today | 1Password item |
 |---|---|---|---|
-| `HOMEBREW_TAP_GITHUB_TOKEN` | `.github/workflows/release.yml`: goreleaser pushes the updated cask to the Homebrew tap on a tag | GitHub Actions secret on this repo (CI only; no local copy) | `wyk-homebrew-tap` (to create; the PAT scoped to the tap repo) |
+| `HOMEBREW_TAP_GITHUB_TOKEN` | `.github/workflows/release.yml`: goreleaser pushes the updated cask to the Homebrew tap on a tag; the first step of that workflow proves the token can read and push | GitHub Actions secret on this repo (CI only; no local copy), seeded from the item | `op://Personal/wyk-homebrew-tap/credential`: a fine-grained PAT with Contents read and write on `raylytics/homebrew-wyk`. Expires 2027-11-12 |
 
 Not secrets: `GITHUB_TOKEN` in that workflow is the ephemeral `github.token`; the `WYK_*`, `XDG_*`, `BEADS_ACTOR`, and `EDITOR` env vars are plain config.
 
