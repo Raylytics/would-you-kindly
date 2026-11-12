@@ -224,6 +224,44 @@ bd calls.
 Exit 0 on PASS or WARN-only, exit 1 if any FAIL.
 
 
+## Releasing
+
+Maintainers cut a release with `scripts/release.sh X.Y.Z` from a clean,
+in-sync `main` whose last `ci` run is green (`RELEASE_DRY_RUN=1` first,
+to see the `CHANGELOG.md` section it will commit). The script lands the
+`chore(release): vX.Y.Z` commit through a pull request with squash
+auto-merge armed — the `main` ruleset accepts nothing else — waits for
+CI to merge it, then pushes the signed `vX.Y.Z` tag at the merge commit.
+The `release` workflow runs on the tag: it first proves the
+`HOMEBREW_TAP_GITHUB_TOKEN` secret can read and push to the tap repo,
+then goreleaser builds the archives, creates the GitHub release with the
+`CHANGELOG.md` section as its notes, and commits the updated cask to
+`raylytics/homebrew-wyk`.
+
+### Recovering a half-release
+
+If the GitHub release exists but `brew upgrade --cask wyk` still offers
+the previous version, the cask push failed after the release was
+published (before the pre-flight step existed, a bad tap token did
+exactly this to v0.8.2). The GitHub release is correct; only the tap is
+behind. Fix the secret for next time (a fine-grained PAT with
+**Contents: read and write** on `raylytics/homebrew-wyk`, stored in
+1Password as `wyk-homebrew-tap`, then
+`op read "op://Private/wyk-homebrew-tap/HOMEBREW_TAP_GITHUB_TOKEN" | gh secret set HOMEBREW_TAP_GITHUB_TOKEN --repo Raylytics/would-you-kindly`),
+and either re-run the failed release job (`gh run rerun <run-id> --failed`)
+or bump the cask by hand:
+
+```bash
+# in a checkout of raylytics/homebrew-wyk
+gh release download vX.Y.Z --repo Raylytics/would-you-kindly --pattern checksums.txt
+sed -i '' 's/version "OLD"/version "X.Y.Z"/' Casks/wyk.rb
+# paste each archive's sha256 from checksums.txt over the matching arch block
+git commit -am "Brew cask update for wyk version vX.Y.Z" && git push
+```
+
+The cask file is otherwise what goreleaser generates (`.goreleaser.yaml`,
+`homebrew_casks`); only the version and the four checksums change.
+
 ## Stats
 
 ```bash
