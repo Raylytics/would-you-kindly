@@ -435,14 +435,6 @@ func (m *Model) restoreFilterPrompt() {
 // rows so the user can retry without re-marking (dispatch sites
 // optimistically clear m.marked; this is the rollback). Refetches
 // after a non-total-failure outcome so the new state is visible.
-// dropFetchCache clears the source's per-repo fetch cache, when it has
-// one, so the next fetch reads bd live.
-func (m Model) dropFetchCache() {
-	if ci, ok := m.src.(cacheInvalidator); ok {
-		ci.InvalidateCache()
-	}
-}
-
 func (m Model) handleBulkWriteResult(msg bulkWriteMsg) (tea.Model, tea.Cmd) {
 	m.dropFetchCache()
 	// Mirror the single-target path: the bulk close's in-flight marks
@@ -786,6 +778,14 @@ func (m *Model) optimisticListUpdate(action string, issue beads.Issue) {
 		return
 	}
 	m.recomputeVisible()
+}
+
+// dropFetchCache clears the source's per-repo fetch cache, when it has
+// one, so the next fetch reads bd live.
+func (m Model) dropFetchCache() {
+	if ci, ok := m.src.(cacheInvalidator); ok {
+		ci.InvalidateCache()
+	}
 }
 
 // handleWriteResult sets the status banner and triggers a refetch so
