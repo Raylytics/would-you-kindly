@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Entries are generated from Conventional Commits by [git-cliff](https://git-cliff.org).
 
+## [0.9.1] - 2026-11-15
+
+### Fixed
+
+- **tui:** Closed tasks no longer come back from a stale fetch cache (#65) ([9150287](https://github.com/jimbottle/would-you-kindly/commit/915028778a2fdba4e1899415e9ab8b0871aa417a))
+
 ## [0.9.0] - 2026-11-12
 
 ### Added
@@ -1953,7 +1959,8 @@ through multiple roborev rounds.
   real bd issues.
 - Any background daemon.
 
-[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/jimbottle/would-you-kindly/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/jimbottle/would-you-kindly/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/jimbottle/would-you-kindly/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/jimbottle/would-you-kindly/releases/tag/v0.8.1
