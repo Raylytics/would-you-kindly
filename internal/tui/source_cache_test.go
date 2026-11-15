@@ -141,3 +141,65 @@ func TestMultiBDSource_BranchReDerivedOnCacheHit(t *testing.T) {
 		t.Errorf("cache hit must re-derive the live branch; got %q want feature-x", all[0].Branch)
 	}
 }
+
+func TestBeadsMtime_SeesEmbeddedDoltWrites(t *testing.T) {
+	// bd's embedded Dolt backend commits under
+	// .beads/embeddeddolt/<db>/.dolt/noms/, which does not change the
+	// mtime of .beads itself. A close made there must still count as a
+	// change, or the next fetch is served from the pre-close cache and
+	// the closed row comes back (would-you-kindly-06rm).
+	root := t.TempDir()
+	noms := filepath.Join(root, ".beads", "embeddeddolt", "demo", ".dolt", "noms")
+	if err := os.MkdirAll(noms, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(noms, "manifest")
+	if err := os.WriteFile(manifest, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	for _, p := range []string{manifest, noms, filepath.Join(root, ".beads")} {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, ok := beadsMtime(root)
+	if !ok {
+		t.Fatal("beadsMtime should stat a .beads dir")
+	}
+
+	// A Dolt commit: only the manifest changes.
+	later := old.Add(10 * time.Minute)
+	if err := os.Chtimes(manifest, later, later); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := beadsMtime(root)
+	if !after.After(before) {
+		t.Errorf("a write under .beads/embeddeddolt must change the freshness stamp; before=%v after=%v", before, after)
+	}
+}
+
+// invalidatingMutator is a stubMutator that records cache drops.
+type invalidatingMutator struct {
+	stubMutator
+	drops int
+}
+
+func (s *invalidatingMutator) InvalidateCache() { s.drops++ }
+
+func TestWriteResult_DropsFetchCache(t *testing.T) {
+	// The refetch after a close must read bd, not the per-repo cache:
+	// the cache cannot have seen the write yet (would-you-kindly-06rm).
+	s := &invalidatingMutator{stubMutator: stubMutator{stubSource: stubSource{issues: sampleIssues()}}}
+	m := New(s)
+	model, _ := m.Update(fetchedMsg{preset: m.preset, issues: s.issues})
+	m = model.(Model)
+	m.Update(writeMsg{action: "close", id: "a-1", issue: m.visible[0]})
+	if s.drops != 1 {
+		t.Errorf("a landed close should drop the fetch cache once; got %d drops", s.drops)
+	}
+	m.Update(bulkWriteMsg{action: "close", total: 2})
+	if s.drops != 2 {
+		t.Errorf("a bulk write should drop the fetch cache too; got %d drops", s.drops)
+	}
+}

@@ -874,18 +874,33 @@ type subCacheEntry struct {
 // mechanisms; the TTL just guarantees eventual self-heal.
 const fetchCacheTTL = 5 * time.Minute
 
-// beadsMtime returns the modification time of repoPath/.beads and ok=true
-// when it can be stat'd. ok=false (empty path, missing dir, stat error)
-// means "freshness unknown" — the caller must NOT serve from cache.
+// beadsMtime returns the freshness stamp for repoPath's bd data, and
+// ok=true when it can be stat'd. ok=false (empty path, missing dir, stat
+// error) means "freshness unknown" — the caller must NOT serve from cache.
+//
+// The stamp is the newest of .beads itself and each embedded-Dolt
+// database's noms manifest. bd's embedded Dolt backend commits under
+// .beads/embeddeddolt/<db>/.dolt/noms/, which never changes the mtime of
+// .beads: keyed on .beads alone, a close was followed by a fetch served
+// from the pre-close cache, and the closed row came back for up to the
+// TTL (would-you-kindly-06rm). Every Dolt commit rewrites the manifest.
 func beadsMtime(repoPath string) (time.Time, bool) {
 	if repoPath == "" {
 		return time.Time{}, false
 	}
-	fi, err := os.Stat(filepath.Join(repoPath, ".beads"))
+	dir := filepath.Join(repoPath, ".beads")
+	fi, err := os.Stat(dir)
 	if err != nil {
 		return time.Time{}, false
 	}
-	return fi.ModTime(), true
+	newest := fi.ModTime()
+	manifests, _ := filepath.Glob(filepath.Join(dir, "embeddeddolt", "*", ".dolt", "noms", "manifest"))
+	for _, p := range manifests {
+		if mi, err := os.Stat(p); err == nil && mi.ModTime().After(newest) {
+			newest = mi.ModTime()
+		}
+	}
+	return newest, true
 }
 
 // cacheGet returns the cached issues+branch for name when the entry

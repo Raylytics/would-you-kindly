@@ -91,6 +91,7 @@ func runClaim(c Claimer, i beads.Issue) tea.Cmd {
 // write error: it names the holder or the fence and the user needs to
 // read it before the next key wipes it.
 func (m Model) handleClaimResult(msg claimMsg) (tea.Model, tea.Cmd) {
+	m.dropFetchCache()
 	if msg.err != nil {
 		m.setStatus("claim " + msg.issue.ID + " failed: " + sanitizeInline(msg.err.Error()))
 		return m, nil
